@@ -7102,1635 +7102,6 @@ function config (name) {
 
 }).call(this,typeof global !== "undefined" ? global : typeof self !== "undefined" ? self : typeof window !== "undefined" ? window : {})
 },{}],35:[function(require,module,exports){
-/*
-    Copyright 2018 0kims association.
-
-    This file is part of snarkjs.
-
-    snarkjs is a free software: you can redistribute it and/or
-    modify it under the terms of the GNU General Public License as published by the
-    Free Software Foundation, either version 3 of the License, or (at your option)
-    any later version.
-
-    snarkjs is distributed in the hope that it will be useful,
-    but WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY
-    or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for
-    more details.
-
-    You should have received a copy of the GNU General Public License along with
-    snarkjs. If not, see <https://www.gnu.org/licenses/>.
-*/
-
-exports.original = {
-    setup: require("./src/setup_original.js"),
-    genProof: require("./src/prover_original.js"),
-    isValid: require("./src/verifier_original.js")
-};
-exports.groth = {
-    setup: require("./src/setup_groth.js"),
-    genProof: require("./src/prover_groth.js"),
-    isValid: require("./src/verifier_groth.js")
-};
-exports.kimleeoh = {
-    setup: require("./src/setup_kimleeoh.js"),
-    genProof: require("./src/prover_kimleeoh.js"),
-    isValid: require("./src/verifier_kimleeoh.js")
-};
-
-exports.stringifyBigInts = require("./src/utils.js").stringifyBigInts;
-exports.unstringifyBigInts = require("./src/utils.js").unstringifyBigInts;
-
-
-},{"./src/prover_groth.js":36,"./src/prover_kimleeoh.js":37,"./src/prover_original.js":38,"./src/setup_groth.js":39,"./src/setup_kimleeoh.js":40,"./src/setup_original.js":41,"./src/utils.js":42,"./src/verifier_groth.js":43,"./src/verifier_kimleeoh.js":44,"./src/verifier_original.js":45}],36:[function(require,module,exports){
-/*
-    Copyright 2018 0kims association.
-
-    This file is part of snarkjs.
-
-    snarkjs is a free software: you can redistribute it and/or
-    modify it under the terms of the GNU General Public License as published by the
-    Free Software Foundation, either version 3 of the License, or (at your option)
-    any later version.
-
-    snarkjs is distributed in the hope that it will be useful,
-    but WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY
-    or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for
-    more details.
-
-    You should have received a copy of the GNU General Public License along with
-    snarkjs. If not, see <https://www.gnu.org/licenses/>.
-*/
-
-/* Implementation of this paper: https://eprint.iacr.org/2016/260.pdf */
-
-const bn128 = require("ffjavascript").bn128;
-const PolField = require("ffjavascript").PolField;
-const ZqField = require("ffjavascript").ZqField;
-
-const PolF = new PolField(new ZqField(bn128.r));
-const G1 = bn128.G1;
-const G2 = bn128.G2;
-
-module.exports = function genProof(vk_proof, witness) {
-
-    const proof = {};
-
-    const r = PolF.F.random();
-    const s = PolF.F.random();
-
-/* Uncomment to generate a deterministic proof to debug
-    const r = PolF.F.zero;
-    const s = PolF.F.zero;
-*/
-
-
-    proof.pi_a = G1.zero;
-    proof.pi_b = G2.zero;
-    proof.pi_c = G1.zero;
-
-    let pib1 = G1.zero;
-
-
-    // Skip public entries and the "1" signal that are forced by the verifier
-
-    for (let s= 0; s< vk_proof.nVars; s++) {
-        // pi_a = pi_a + A[s] * witness[s];
-        proof.pi_a = G1.add( proof.pi_a, G1.mulScalar( vk_proof.A[s], witness[s]));
-
-        // pi_b = pi_b + B[s] * witness[s];
-        proof.pi_b = G2.add( proof.pi_b, G2.mulScalar( vk_proof.B2[s], witness[s]));
-
-        pib1 = G1.add( pib1, G1.mulScalar( vk_proof.B1[s], witness[s]));
-    }
-
-    for (let s= vk_proof.nPublic+1; s< vk_proof.nVars; s++) {
-
-        // pi_a  = pi_a  + A[s]  * witness[s];
-        proof.pi_c  = G1.add( proof.pi_c, G1.mulScalar( vk_proof.C[s], witness[s]));
-    }
-
-    proof.pi_a  = G1.add( proof.pi_a, vk_proof.vk_alfa_1 );
-    proof.pi_a  = G1.add( proof.pi_a, G1.mulScalar( vk_proof.vk_delta_1, r ));
-
-    proof.pi_b  = G2.add( proof.pi_b, vk_proof.vk_beta_2 );
-    proof.pi_b  = G2.add( proof.pi_b, G2.mulScalar( vk_proof.vk_delta_2, s ));
-
-    pib1 = G1.add( pib1, vk_proof.vk_beta_1 );
-    pib1 = G1.add( pib1, G1.mulScalar( vk_proof.vk_delta_1, s ));
-
-    const h = calculateH(vk_proof, witness);
-
-    // proof.pi_c = G1.affine(proof.pi_c);
-    // console.log("pi_onlyc", proof.pi_c);
-
-    for (let i = 0; i < h.length; i++) {
-        // console.log(i + "->" + h[i].toString());
-        proof.pi_c = G1.add( proof.pi_c, G1.mulScalar( vk_proof.hExps[i], h[i]));
-    }
-
-    // proof.pi_c = G1.affine(proof.pi_c);
-    // console.log("pi_candh", proof.pi_c);
-
-    proof.pi_c  = G1.add( proof.pi_c, G1.mulScalar( proof.pi_a, s ));
-    proof.pi_c  = G1.add( proof.pi_c, G1.mulScalar( pib1, r ));
-    proof.pi_c  = G1.add( proof.pi_c, G1.mulScalar( vk_proof.vk_delta_1, PolF.F.neg(PolF.F.mul(r,s) )));
-
-
-    const publicSignals = witness.slice(1, vk_proof.nPublic+1);
-
-    proof.pi_a = G1.affine(proof.pi_a);
-    proof.pi_b = G2.affine(proof.pi_b);
-    proof.pi_c = G1.affine(proof.pi_c);
-
-    proof.protocol = "groth";
-
-    return {proof, publicSignals};
-
-};
-
-
-/*
-// Old Method.  (It's clear for academic understanding)
-function calculateH(vk_proof, witness) {
-
-    const F = PolF.F;
-    const m = vk_proof.domainSize;
-    const polA_T = new Array(m).fill(PolF.F.zero);
-    const polB_T = new Array(m).fill(PolF.F.zero);
-    const polC_T = new Array(m).fill(PolF.F.zero);
-
-    for (let s=0; s<vk_proof.nVars; s++) {
-        for (let c in vk_proof.polsA[s]) {
-            polA_T[c] = F.add(polA_T[c], F.mul(witness[s], vk_proof.polsA[s][c]));
-        }
-        for (let c in vk_proof.polsB[s]) {
-            polB_T[c] = F.add(polB_T[c], F.mul(witness[s], vk_proof.polsB[s][c]));
-        }
-
-        for (let c in vk_proof.polsC[s]) {
-            polC_T[c] = F.add(polC_T[c], F.mul(witness[s], vk_proof.polsC[s][c]));
-        }
-
-    }
-
-    const polA_S = PolF.ifft(polA_T);
-    const polB_S = PolF.ifft(polB_T);
-
-    const polAB_S = PolF.mul(polA_S, polB_S);
-
-    const polC_S = PolF.ifft(polC_T);
-
-    const polABC_S = PolF.sub(polAB_S, polC_S);
-
-    const H_S = polABC_S.slice(m);
-
-    return H_S;
-}
-*/
-
-function calculateH(vk_proof, witness) {
-
-    const F = PolF.F;
-    const m = vk_proof.domainSize;
-    const polA_T = new Array(m).fill(PolF.F.zero);
-    const polB_T = new Array(m).fill(PolF.F.zero);
-
-    for (let s=0; s<vk_proof.nVars; s++) {
-        for (let c in vk_proof.polsA[s]) {
-            polA_T[c] = F.add(polA_T[c], F.mul(witness[s], vk_proof.polsA[s][c]));
-        }
-        for (let c in vk_proof.polsB[s]) {
-            polB_T[c] = F.add(polB_T[c], F.mul(witness[s], vk_proof.polsB[s][c]));
-        }
-    }
-
-    const polA_S = PolF.ifft(polA_T);
-    const polB_S = PolF.ifft(polB_T);
-
-    // F(wx) = [1, w, w^2, ...... w^(m-1)] in time is the same than shift in in frequency
-    const r = PolF.log2(m)+1;
-    PolF._setRoots(r);
-    for (let i=0; i<polA_S.length; i++) {
-        polA_S[i] = PolF.F.mul( polA_S[i], PolF.roots[r][i]);
-        polB_S[i] = PolF.F.mul( polB_S[i], PolF.roots[r][i]);
-    }
-
-    const polA_Todd = PolF.fft(polA_S);
-    const polB_Todd = PolF.fft(polB_S);
-
-    const polAB_T = new Array(polA_S.length*2);
-    for (let i=0; i<polA_S.length; i++) {
-        polAB_T[2*i] = PolF.F.mul( polA_T[i], polB_T[i]);
-        polAB_T[2*i+1] = PolF.F.mul( polA_Todd[i], polB_Todd[i]);
-    }
-
-    // We only need the to half of the fft, so we could optimize at least by m multiplications.
-    let H_S = PolF.ifft(polAB_T);
-
-    H_S = H_S.slice(m);
-
-    return H_S;
-
-}
-
-},{"ffjavascript":51}],37:[function(require,module,exports){
-(function (Buffer){
-/*
-    Copyright 2018 0kims association.
-
-    This file is part of snarkjs.
-
-    snarkjs is a free software: you can redistribute it and/or
-    modify it under the terms of the GNU General Public License as published by the
-    Free Software Foundation, either version 3 of the License, or (at your option)
-    any later version.
-
-    snarkjs is distributed in the hope that it will be useful,
-    but WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY
-    or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for
-    more details.
-
-    You should have received a copy of the GNU General Public License along with
-    snarkjs. If not, see <https://www.gnu.org/licenses/>.
-*/
-
-/* Implementation of this paper: https://eprint.iacr.org/2016/260.pdf */
-
-const bn128 = require("ffjavascript").bn128;
-const PolField = require("ffjavascript").PolField;
-const ZqField = require("ffjavascript").ZqField;
-const createKeccakHash = require("keccak");
-const utils = require("./utils");
-
-
-const PolF = new PolField(new ZqField(bn128.r));
-const G1 = bn128.G1;
-const G2 = bn128.G2;
-
-module.exports = function genProof(vk_proof, witness) {
-
-    const proof = {};
-
-    const r = PolF.F.random();
-    const s = PolF.F.random();
-
-//    const r = PolF.F.zero;
-//    const s = PolF.F.zero;
-
-/* Uncomment to generate a deterministic proof to debug
-    const r = PolF.F.zero;
-    const s = PolF.F.zero;
-*/
-
-
-    proof.pi_a = G1.zero;
-    proof.pi_b = G2.zero;
-    proof.pi_c = G1.zero;
-
-    let pib1 = G1.zero;
-    let piadelta = G1.zero;
-
-
-    // Skip public entries and the "1" signal that are forced by the verifier
-
-    for (let s= 0; s< vk_proof.nVars; s++) {
-        // pi_a = pi_a + A[s] * witness[s];
-        proof.pi_a = G1.add( proof.pi_a, G1.mulScalar( vk_proof.A[s], witness[s]));
-
-        // pi_b = pi_b + B[s] * witness[s];
-        proof.pi_b = G2.add( proof.pi_b, G2.mulScalar( vk_proof.B2[s], witness[s]));
-
-        piadelta = G1.add( piadelta, G1.mulScalar( vk_proof.Adelta[s], witness[s]));
-        pib1 = G1.add( pib1, G1.mulScalar( vk_proof.B1[s], witness[s]));
-    }
-
-    for (let s= vk_proof.nPublic+1; s< vk_proof.nVars; s++) {
-
-        // pi_a  = pi_a  + A[s]  * witness[s];
-        proof.pi_c  = G1.add( proof.pi_c, G1.mulScalar( vk_proof.C[s], witness[s]));
-    }
-
-    proof.pi_a  = G1.add( proof.pi_a, vk_proof.vk_alfa_1 );
-    proof.pi_a  = G1.add( proof.pi_a, G1.mulScalar( G1.g, r ));
-
-    piadelta = G1.add( piadelta, vk_proof.vk_alfadelta_1);
-    piadelta = G1.add( piadelta, G1.mulScalar( vk_proof.vk_delta_1, r ));
-
-    proof.pi_b  = G2.add( proof.pi_b, vk_proof.vk_beta_2 );
-    proof.pi_b  = G2.add( proof.pi_b, G2.mulScalar( G2.g, s ));
-
-    pib1 = G1.add( pib1, vk_proof.vk_beta_1 );
-    pib1 = G1.add( pib1, G1.mulScalar( G1.g, s ));
-
-    proof.pi_a = G1.affine(proof.pi_a);
-    proof.pi_b = G2.affine(proof.pi_b);
-
-    const buff = Buffer.concat([
-        utils.beInt2Buff(proof.pi_a[0],32),
-        utils.beInt2Buff(proof.pi_a[1],32),
-        utils.beInt2Buff(proof.pi_b[0][0],32),
-        utils.beInt2Buff(proof.pi_b[0][1],32),
-        utils.beInt2Buff(proof.pi_b[1][0],32),
-        utils.beInt2Buff(proof.pi_b[1][1],32)
-    ]);
-
-    const h1buff = createKeccakHash("keccak256").update(buff).digest();
-    const h2buff = createKeccakHash("keccak256").update(h1buff).digest();
-
-    const h1 = utils.beBuff2int(h1buff);
-    const h2 = utils.beBuff2int(h2buff);
-
-    // const h1 = PolF.F.zero;
-    // const h2 = PolF.F.zero;
-
-    // console.log(h1.toString());
-    // console.log(h2.toString());
-
-    const h = calculateH(vk_proof, witness);
-
-    // proof.pi_c = G1.affine(proof.pi_c);
-    // console.log("pi_onlyc", proof.pi_c);
-
-    for (let i = 0; i < h.length; i++) {
-        // console.log(i + "->" + h[i].toString());
-        proof.pi_c = G1.add( proof.pi_c, G1.mulScalar( vk_proof.hExps[i], h[i]));
-    }
-
-    // proof.pi_c = G1.affine(proof.pi_c);
-    // console.log("pi_candh", proof.pi_c);
-
-    proof.pi_c  = G1.add( proof.pi_c, G1.mulScalar( proof.pi_a, s ));
-    proof.pi_c  = G1.add( proof.pi_c, G1.mulScalar( pib1, r ));
-    proof.pi_c  = G1.add( proof.pi_c, G1.mulScalar( G1.g, PolF.F.neg(PolF.F.mul(r,s) )));
-
-    proof.pi_c  = G1.add( proof.pi_c, G1.mulScalar( piadelta, h2 ));
-    proof.pi_c  = G1.add( proof.pi_c, G1.mulScalar( pib1, h1 ));
-    proof.pi_c  = G1.add( proof.pi_c, G1.mulScalar( vk_proof.vk_delta_1, PolF.F.mul(h1,h2)));
-
-    const publicSignals = witness.slice(1, vk_proof.nPublic+1);
-
-    proof.pi_c = G1.affine(proof.pi_c);
-
-    proof.protocol = "kimleeoh";
-
-    return {proof, publicSignals};
-
-};
-
-
-function calculateH(vk_proof, witness) {
-
-    const F = PolF.F;
-    const m = vk_proof.domainSize;
-    const polA_T = new Array(m).fill(PolF.F.zero);
-    const polB_T = new Array(m).fill(PolF.F.zero);
-    const polC_T = new Array(m).fill(PolF.F.zero);
-
-    for (let s=0; s<vk_proof.nVars; s++) {
-        for (let c in vk_proof.polsA[s]) {
-            polA_T[c] = F.add(polA_T[c], F.mul(witness[s], vk_proof.polsA[s][c]));
-        }
-        for (let c in vk_proof.polsB[s]) {
-            polB_T[c] = F.add(polB_T[c], F.mul(witness[s], vk_proof.polsB[s][c]));
-        }
-        for (let c in vk_proof.polsC[s]) {
-            polC_T[c] = F.add(polC_T[c], F.mul(witness[s], vk_proof.polsC[s][c]));
-        }
-    }
-
-    const polA_S = PolF.ifft(polA_T);
-    const polB_S = PolF.ifft(polB_T);
-
-    const polAB_S = PolF.mul(polA_S, polB_S);
-
-    const polC_S = PolF.ifft(polC_T);
-
-    const polABC_S = PolF.sub(polAB_S, polC_S);
-
-    const H_S = polABC_S.slice(m);
-
-    return H_S;
-}
-
-}).call(this,require("buffer").Buffer)
-},{"./utils":42,"buffer":7,"ffjavascript":51,"keccak":60}],38:[function(require,module,exports){
-/*
-    Copyright 2018 0kims association.
-
-    This file is part of snarkjs.
-
-    snarkjs is a free software: you can redistribute it and/or
-    modify it under the terms of the GNU General Public License as published by the
-    Free Software Foundation, either version 3 of the License, or (at your option)
-    any later version.
-
-    snarkjs is distributed in the hope that it will be useful,
-    but WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY
-    or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for
-    more details.
-
-    You should have received a copy of the GNU General Public License along with
-    snarkjs. If not, see <https://www.gnu.org/licenses/>.
-*/
-
-const bn128 = require("ffjavascript").bn128;
-const PolField = require("ffjavascript").PolField;
-const ZqField = require("ffjavascript").ZqField;
-
-const PolF = new PolField(new ZqField(bn128.r));
-const G1 = bn128.G1;
-const G2 = bn128.G2;
-
-module.exports = function genProof(vk_proof, witness) {
-
-    const proof = {};
-
-
-    const d1 = PolF.F.random();
-    const d2 = PolF.F.random();
-    const d3 = PolF.F.random();
-
-    proof.pi_a = G1.zero;
-    proof.pi_ap = G1.zero;
-    proof.pi_b = G2.zero;
-    proof.pi_bp = G1.zero;
-    proof.pi_c = G1.zero;
-    proof.pi_cp = G1.zero;
-    proof.pi_kp = G1.zero;
-    proof.pi_h = G1.zero;
-
-
-    // Skip public entries and the "1" signal that are forced by the verifier
-    for (let s= vk_proof.nPublic+1; s< vk_proof.nVars; s++) {
-
-        // pi_a  = pi_a  + A[s]  * witness[s];
-        proof.pi_a  = G1.add( proof.pi_a, G1.mulScalar( vk_proof.A[s], witness[s]));
-
-        // pi_ap = pi_ap + Ap[s] * witness[s];
-        proof.pi_ap = G1.add( proof.pi_ap, G1.mulScalar( vk_proof.Ap[s], witness[s]));
-    }
-
-    for (let s= 0; s< vk_proof.nVars; s++) {
-        // pi_a  = pi_a  + A[s]  * witness[s];
-        proof.pi_b  = G2.add( proof.pi_b, G2.mulScalar( vk_proof.B[s], witness[s]));
-
-        // pi_ap = pi_ap + Ap[s] * witness[s];
-        proof.pi_bp = G1.add( proof.pi_bp, G1.mulScalar( vk_proof.Bp[s], witness[s]));
-
-        // pi_a  = pi_a  + A[s]  * witness[s];
-        proof.pi_c  = G1.add( proof.pi_c, G1.mulScalar( vk_proof.C[s], witness[s]));
-
-        // pi_ap = pi_ap + Ap[s] * witness[s];
-        proof.pi_cp = G1.add( proof.pi_cp, G1.mulScalar( vk_proof.Cp[s], witness[s]));
-
-        // pi_ap = pi_ap + Ap[s] * witness[s];
-        proof.pi_kp = G1.add( proof.pi_kp, G1.mulScalar( vk_proof.Kp[s], witness[s]));
-    }
-
-    proof.pi_a  = G1.add( proof.pi_a, G1.mulScalar( vk_proof.A[vk_proof.nVars], d1));
-    proof.pi_ap  = G1.add( proof.pi_ap, G1.mulScalar( vk_proof.Ap[vk_proof.nVars], d1));
-
-    proof.pi_b  = G2.add( proof.pi_b, G2.mulScalar( vk_proof.B[vk_proof.nVars], d2));
-    proof.pi_bp  = G1.add( proof.pi_bp, G1.mulScalar( vk_proof.Bp[vk_proof.nVars], d2));
-
-    proof.pi_c  = G1.add( proof.pi_c, G1.mulScalar( vk_proof.C[vk_proof.nVars], d3));
-    proof.pi_cp  = G1.add( proof.pi_cp, G1.mulScalar( vk_proof.Cp[vk_proof.nVars], d3));
-
-    proof.pi_kp  = G1.add( proof.pi_kp, G1.mulScalar( vk_proof.Kp[vk_proof.nVars  ], d1));
-    proof.pi_kp  = G1.add( proof.pi_kp, G1.mulScalar( vk_proof.Kp[vk_proof.nVars+1], d2));
-    proof.pi_kp  = G1.add( proof.pi_kp, G1.mulScalar( vk_proof.Kp[vk_proof.nVars+2], d3));
-
-/*
-    let polA = [];
-    let polB = [];
-    let polC = [];
-
-    for (let s= 0; s< vk_proof.nVars; s++) {
-        polA = PolF.add(
-            polA,
-            PolF.mul(
-                vk_proof.polsA[s],
-                [witness[s]] ));
-
-        polB = PolF.add(
-            polB,
-            PolF.mul(
-                vk_proof.polsB[s],
-                [witness[s]] ));
-
-        polC = PolF.add(
-            polC,
-            PolF.mul(
-                vk_proof.polsC[s],
-                [witness[s]] ));
-    }
-
-
-    let polFull = PolF.sub(PolF.mul( polA, polB), polC);
-
-    const h = PolF.div(polFull, vk_proof.polZ );
-*/
-
-    const h = calculateH(vk_proof, witness, d1, d2, d3);
-
-//    console.log(h.length + "/" + vk_proof.hExps.length);
-
-    for (let i = 0; i < h.length; i++) {
-        proof.pi_h = G1.add( proof.pi_h, G1.mulScalar( vk_proof.hExps[i], h[i]));
-    }
-
-    proof.pi_a = G1.affine(proof.pi_a);
-    proof.pi_b = G2.affine(proof.pi_b);
-    proof.pi_c = G1.affine(proof.pi_c);
-    proof.pi_ap = G1.affine(proof.pi_ap);
-    proof.pi_bp = G1.affine(proof.pi_bp);
-    proof.pi_cp = G1.affine(proof.pi_cp);
-    proof.pi_kp = G1.affine(proof.pi_kp);
-    proof.pi_h = G1.affine(proof.pi_h);
-
-//    proof.h=h;
-
-    proof.protocol = "original";
-
-    const publicSignals = witness.slice(1, vk_proof.nPublic+1);
-
-    return {proof, publicSignals};
-};
-
-
-function calculateH(vk_proof, witness, d1, d2, d3) {
-
-    const F = PolF.F;
-    const m = vk_proof.domainSize;
-    const polA_T = new Array(m).fill(PolF.F.zero);
-    const polB_T = new Array(m).fill(PolF.F.zero);
-    const polC_T = new Array(m).fill(PolF.F.zero);
-
-    for (let s=0; s<vk_proof.nVars; s++) {
-        for (let c in vk_proof.polsA[s]) {
-            polA_T[c] = F.add(polA_T[c], F.mul(witness[s], vk_proof.polsA[s][c]));
-        }
-        for (let c in vk_proof.polsB[s]) {
-            polB_T[c] = F.add(polB_T[c], F.mul(witness[s], vk_proof.polsB[s][c]));
-        }
-        for (let c in vk_proof.polsC[s]) {
-            polC_T[c] = F.add(polC_T[c], F.mul(witness[s], vk_proof.polsC[s][c]));
-        }
-    }
-
-    const polA_S = PolF.ifft(polA_T);
-    const polB_S = PolF.ifft(polB_T);
-
-    const polAB_S = PolF.mul(polA_S, polB_S);
-
-    const polC_S = PolF.ifft(polC_T);
-
-    const polABC_S = PolF.sub(polAB_S, polC_S);
-
-    const polZ_S = new Array(m+1).fill(F.zero);
-    polZ_S[m] = F.one;
-    polZ_S[0] = F.neg(F.one);
-
-    let H_S = PolF.div(polABC_S, polZ_S);
-/*
-    const H2S = PolF.mul(H_S, polZ_S);
-
-    if (PolF.equals(H2S, polABC_S)) {
-        console.log("Is Divisible!");
-    } else {
-        console.log("ERROR: Not divisible!");
-    }
-*/
-
-    /* add coefficients of the polynomial (d2*A + d1*B - d3) + d1*d2*Z */
-
-    H_S = PolF.extend(H_S, m+1);
-
-    for (let i=0; i<m; i++) {
-        const d2A = PolF.F.mul(d2, polA_S[i]);
-        const d1B = PolF.F.mul(d1, polB_S[i]);
-        H_S[i] = PolF.F.add(H_S[i], PolF.F.add(d2A, d1B));
-    }
-
-    H_S[0] = PolF.F.sub(H_S[0], d3);
-
-    // Z = x^m -1
-    const d1d2 = PolF.F.mul(d1, d2);
-    H_S[m] = PolF.F.add(H_S[m], d1d2);
-    H_S[0] = PolF.F.sub(H_S[0], d1d2);
-
-    H_S = PolF.reduce(H_S);
-
-    return H_S;
-}
-
-},{"ffjavascript":51}],39:[function(require,module,exports){
-/*
-    Copyright 2018 0kims association.
-
-    This file is part of snarkjs.
-
-    snarkjs is a free software: you can redistribute it and/or
-    modify it under the terms of the GNU General Public License as published by the
-    Free Software Foundation, either version 3 of the License, or (at your option)
-    any later version.
-
-    snarkjs is distributed in the hope that it will be useful,
-    but WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY
-    or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for
-    more details.
-
-    You should have received a copy of the GNU General Public License along with
-    snarkjs. If not, see <https://www.gnu.org/licenses/>.
-*/
-
-/* Implementation of this paper: https://eprint.iacr.org/2016/260.pdf */
-
-const bigInt = require("big-integer");
-
-const bn128 = require("ffjavascript").bn128;
-const PolField = require("ffjavascript").PolField;
-const ZqField = require("ffjavascript").ZqField;
-
-const G1 = bn128.G1;
-const G2 = bn128.G2;
-const PolF = new PolField(new ZqField(bn128.r));
-const F = new ZqField(bn128.r);
-
-module.exports = function setup(circuit, verbose) {
-    const setup = {
-        vk_proof : {
-            protocol: "groth",
-            nVars: circuit.nVars,
-            nPublic: circuit.nPubInputs + circuit.nOutputs
-        },
-        vk_verifier: {
-            protocol: "groth",
-            nPublic: circuit.nPubInputs + circuit.nOutputs
-        },
-        toxic: {}
-    };
-
-
-    setup.vk_proof.domainBits = PolF.log2(circuit.nConstraints + circuit.nPubInputs + circuit.nOutputs +1 -1) +1;
-    setup.vk_proof.domainSize = 1 << setup.vk_proof.domainBits;
-
-    calculatePolinomials(setup, circuit);
-    setup.toxic.t = F.random();
-    calculateEncriptedValuesAtT(setup, circuit, verbose);
-
-    return setup;
-};
-
-
-function calculatePolinomials(setup, circuit) {
-
-    setup.vk_proof.polsA = new Array(circuit.nVars);
-    setup.vk_proof.polsB = new Array(circuit.nVars);
-    setup.vk_proof.polsC = new Array(circuit.nVars);
-    for (let i=0; i<circuit.nVars; i++) {
-        setup.vk_proof.polsA[i] = {};
-        setup.vk_proof.polsB[i] = {};
-        setup.vk_proof.polsC[i] = {};
-    }
-    for (let c=0; c<circuit.nConstraints; c++) {
-
-        for (let s in circuit.constraints[c][0]) {
-            setup.vk_proof.polsA[s][c] = bigInt(circuit.constraints[c][0][s]);
-        }
-        for (let s in circuit.constraints[c][1]) {
-            setup.vk_proof.polsB[s][c] = bigInt(circuit.constraints[c][1][s]);
-        }
-        for (let s in circuit.constraints[c][2]) {
-            setup.vk_proof.polsC[s][c] = bigInt(circuit.constraints[c][2][s]);
-        }
-    }
-
-    /**
-     * add and process the constraints
-     *     input_i * 0 = 0
-     * to ensure soundness of input consistency
-     */
-    for (let i = 0; i < circuit.nPubInputs + circuit.nOutputs + 1; ++i)
-    {
-        setup.vk_proof.polsA[i][circuit.nConstraints + i] = F.one;
-    }
-}
-
-function calculateValuesAtT(setup, circuit) {
-    const z_t = PolF.computeVanishingPolinomial(setup.vk_proof.domainBits, setup.toxic.t);
-    const u = PolF.evaluateLagrangePolynomials(setup.vk_proof.domainBits, setup.toxic.t);
-
-    const a_t = new Array(circuit.nVars).fill(F.zero);
-    const b_t = new Array(circuit.nVars).fill(F.zero);
-    const c_t = new Array(circuit.nVars).fill(F.zero);
-
-    // TODO: substitute setup.polsA for coeficients
-    for (let s=0; s<circuit.nVars; s++) {
-        for (let c in setup.vk_proof.polsA[s]) {
-            a_t[s] = F.add(a_t[s], F.mul(u[c], setup.vk_proof.polsA[s][c]));
-        }
-        for (let c in setup.vk_proof.polsB[s]) {
-            b_t[s] = F.add(b_t[s], F.mul(u[c], setup.vk_proof.polsB[s][c]));
-        }
-        for (let c in setup.vk_proof.polsC[s]) {
-            c_t[s] = F.add(c_t[s], F.mul(u[c], setup.vk_proof.polsC[s][c]));
-        }
-    }
-
-    return {a_t, b_t, c_t, z_t};
-
-}
-
-
-
-
-function calculateEncriptedValuesAtT(setup, circuit, verbose) {
-
-    const v = calculateValuesAtT(setup, circuit);
-    setup.vk_proof.A = new Array(circuit.nVars);
-    setup.vk_proof.B1 = new Array(circuit.nVars);
-    setup.vk_proof.B2 = new Array(circuit.nVars);
-    setup.vk_proof.C = new Array(circuit.nVars);
-    setup.vk_verifier.IC = new Array(circuit.nPubInputs + circuit.nOutputs + 1);
-
-    setup.toxic.kalfa = F.random();
-    setup.toxic.kbeta = F.random();
-    setup.toxic.kgamma = F.random();
-    setup.toxic.kdelta = F.random();
-
-    let invDelta = F.inv(setup.toxic.kdelta);
-    let invGamma = F.inv(setup.toxic.kgamma);
-
-    setup.vk_proof.vk_alfa_1 = G1.affine(G1.mulScalar( G1.g, setup.toxic.kalfa));
-    setup.vk_proof.vk_beta_1 = G1.affine(G1.mulScalar( G1.g, setup.toxic.kbeta));
-    setup.vk_proof.vk_delta_1 = G1.affine(G1.mulScalar( G1.g, setup.toxic.kdelta));
-
-    setup.vk_proof.vk_beta_2 = G2.affine(G2.mulScalar( G2.g, setup.toxic.kbeta));
-    setup.vk_proof.vk_delta_2 = G2.affine(G2.mulScalar( G2.g, setup.toxic.kdelta));
-
-
-    setup.vk_verifier.vk_alfa_1 = G1.affine(G1.mulScalar( G1.g, setup.toxic.kalfa));
-
-    setup.vk_verifier.vk_beta_2 = G2.affine(G2.mulScalar( G2.g, setup.toxic.kbeta));
-    setup.vk_verifier.vk_gamma_2 = G2.affine(G2.mulScalar( G2.g, setup.toxic.kgamma));
-    setup.vk_verifier.vk_delta_2 = G2.affine(G2.mulScalar( G2.g, setup.toxic.kdelta));
-
-    setup.vk_verifier.vk_alfabeta_12 = bn128.pairing( setup.vk_verifier.vk_alfa_1 , setup.vk_verifier.vk_beta_2 );
-
-    for (let s=0; s<circuit.nVars; s++) {
-
-        const A = G1.mulScalar(G1.g, v.a_t[s]);
-
-        setup.vk_proof.A[s] = A;
-
-        const B1 = G1.mulScalar(G1.g, v.b_t[s]);
-
-        setup.vk_proof.B1[s] = B1;
-
-        const B2 = G2.mulScalar(G2.g, v.b_t[s]);
-
-        setup.vk_proof.B2[s] = B2;
-
-        if ((verbose)&&(s%1000 == 1)) console.log("A, B1, B2: ", s);
-    }
-
-
-    for (let s=0; s<=setup.vk_proof.nPublic; s++) {
-        let ps =
-            F.mul(
-                invGamma,
-                F.add(
-                    F.add(
-                        F.mul(v.a_t[s], setup.toxic.kbeta),
-                        F.mul(v.b_t[s], setup.toxic.kalfa)),
-                    v.c_t[s]));
-
-        const IC = G1.mulScalar(G1.g, ps);
-        setup.vk_verifier.IC[s]=IC;
-    }
-
-    for (let s=setup.vk_proof.nPublic+1; s<circuit.nVars; s++) {
-        let ps =
-            F.mul(
-                invDelta,
-                F.add(
-                    F.add(
-                        F.mul(v.a_t[s], setup.toxic.kbeta),
-                        F.mul(v.b_t[s], setup.toxic.kalfa)),
-                    v.c_t[s]));
-        const C = G1.mulScalar(G1.g, ps);
-        setup.vk_proof.C[s]=C;
-
-        if ((verbose)&&(s%1000 == 1)) console.log("C: ", s);
-
-    }
-
-    // Calculate HExps
-
-    const maxH = setup.vk_proof.domainSize+1;
-
-    setup.vk_proof.hExps = new Array(maxH);
-
-    const zod = F.mul(invDelta, v.z_t);
-
-    setup.vk_proof.hExps[0] = G1.affine(G1.mulScalar(G1.g, zod));
-    let eT = setup.toxic.t;
-    for (let i=1; i<maxH; i++) {
-        setup.vk_proof.hExps[i] = G1.mulScalar(G1.g, F.mul(eT, zod));
-        eT = F.mul(eT, setup.toxic.t);
-
-        if ((verbose)&&(i%1000 == 1)) console.log("Tau: ", i);
-
-    }
-
-    G1.multiAffine(setup.vk_proof.A);
-    G1.multiAffine(setup.vk_proof.B1);
-    G2.multiAffine(setup.vk_proof.B2);
-    G1.multiAffine(setup.vk_proof.C);
-    G1.multiAffine(setup.vk_proof.hExps);
-
-    G1.multiAffine(setup.vk_verifier.IC);
-
-}
-
-
-},{"big-integer":47,"ffjavascript":51}],40:[function(require,module,exports){
-/*
-    Copyright 2018 0kims association.
-
-    This file is part of snarkjs.
-
-    snarkjs is a free software: you can redistribute it and/or
-    modify it under the terms of the GNU General Public License as published by the
-    Free Software Foundation, either version 3 of the License, or (at your option)
-    any later version.
-
-    snarkjs is distributed in the hope that it will be useful,
-    but WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY
-    or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for
-    more details.
-
-    You should have received a copy of the GNU General Public License along with
-    snarkjs. If not, see <https://www.gnu.org/licenses/>.
-*/
-
-/* Implementation of this paper: https://eprint.iacr.org/2016/260.pdf */
-
-const bigInt = require("big-integer");
-
-const bn128 = require("ffjavascript").bn128;
-const PolField = require("ffjavascript").PolField;
-const ZqField = require("ffjavascript").ZqField;
-
-const G1 = bn128.G1;
-const G2 = bn128.G2;
-const PolF = new PolField(new ZqField(bn128.r));
-const F = new ZqField(bn128.r);
-
-module.exports = function setup(circuit) {
-    const setup = {
-        vk_proof : {
-            protocol: "kimleeoh",
-            nVars: circuit.nVars,
-            nPublic: circuit.nPubInputs + circuit.nOutputs
-        },
-        vk_verifier: {
-            protocol: "kimleeoh",
-            nPublic: circuit.nPubInputs + circuit.nOutputs
-        },
-        toxic: {}
-    };
-
-
-    setup.vk_proof.domainBits = PolF.log2(circuit.nConstraints + circuit.nPubInputs + circuit.nOutputs +1 -1) +1;
-    setup.vk_proof.domainSize = 1 << setup.vk_proof.domainBits;
-
-    calculatePolinomials(setup, circuit);
-    setup.toxic.t = F.random();
-    calculateEncriptedValuesAtT(setup, circuit);
-
-    return setup;
-};
-
-
-function calculatePolinomials(setup, circuit) {
-
-    setup.vk_proof.polsA = new Array(circuit.nVars);
-    setup.vk_proof.polsB = new Array(circuit.nVars);
-    setup.vk_proof.polsC = new Array(circuit.nVars);
-    for (let i=0; i<circuit.nVars; i++) {
-        setup.vk_proof.polsA[i] = {};
-        setup.vk_proof.polsB[i] = {};
-        setup.vk_proof.polsC[i] = {};
-    }
-    for (let c=0; c<circuit.nConstraints; c++) {
-
-        for (let s in circuit.constraints[c][0]) {
-            setup.vk_proof.polsA[s][c] = bigInt(circuit.constraints[c][0][s]);
-        }
-        for (let s in circuit.constraints[c][1]) {
-            setup.vk_proof.polsB[s][c] = bigInt(circuit.constraints[c][1][s]);
-        }
-        for (let s in circuit.constraints[c][2]) {
-            setup.vk_proof.polsC[s][c] = bigInt(circuit.constraints[c][2][s]);
-        }
-    }
-
-    /**
-     * add and process the constraints
-     *     input_i * 0 = 0
-     * to ensure soundness of input consistency
-     */
-    for (let i = 0; i < circuit.nPubInputs + circuit.nOutputs + 1; ++i)
-    {
-        setup.vk_proof.polsA[i][circuit.nConstraints + i] = F.one;
-    }
-}
-
-function calculateValuesAtT(setup, circuit) {
-    const z_t = PolF.computeVanishingPolinomial(setup.vk_proof.domainBits, setup.toxic.t);
-    const u = PolF.evaluateLagrangePolynomials(setup.vk_proof.domainBits, setup.toxic.t);
-
-    const a_t = new Array(circuit.nVars).fill(F.zero);
-    const b_t = new Array(circuit.nVars).fill(F.zero);
-    const c_t = new Array(circuit.nVars).fill(F.zero);
-
-    // TODO: substitute setup.polsA for coeficients
-    for (let s=0; s<circuit.nVars; s++) {
-        for (let c in setup.vk_proof.polsA[s]) {
-            a_t[s] = F.add(a_t[s], F.mul(u[c], setup.vk_proof.polsA[s][c]));
-        }
-        for (let c in setup.vk_proof.polsB[s]) {
-            b_t[s] = F.add(b_t[s], F.mul(u[c], setup.vk_proof.polsB[s][c]));
-        }
-        for (let c in setup.vk_proof.polsC[s]) {
-            c_t[s] = F.add(c_t[s], F.mul(u[c], setup.vk_proof.polsC[s][c]));
-        }
-    }
-
-    return {a_t, b_t, c_t, z_t};
-
-}
-
-
-
-
-function calculateEncriptedValuesAtT(setup, circuit) {
-
-    const v = calculateValuesAtT(setup, circuit);
-    setup.vk_proof.A = new Array(circuit.nVars);
-    setup.vk_proof.Adelta = new Array(circuit.nVars);
-    setup.vk_proof.B1 = new Array(circuit.nVars);
-    setup.vk_proof.B2 = new Array(circuit.nVars);
-    setup.vk_proof.C = new Array(circuit.nVars);
-    setup.vk_verifier.IC = new Array(circuit.nPubInputs + circuit.nOutputs + 1);
-
-    setup.toxic.kalfa = F.random();
-    setup.toxic.kbeta = F.random();
-    setup.toxic.kgamma = F.random();
-    setup.toxic.kdelta = F.random();
-
-    const gammaSquare = F.mul(setup.toxic.kgamma, setup.toxic.kgamma);
-
-    setup.vk_proof.vk_alfa_1 = G1.affine(G1.mulScalar( G1.g, setup.toxic.kalfa));
-    setup.vk_proof.vk_beta_1 = G1.affine(G1.mulScalar( G1.g, setup.toxic.kbeta));
-    setup.vk_proof.vk_delta_1 = G1.affine(G1.mulScalar( G1.g, setup.toxic.kdelta));
-    setup.vk_proof.vk_alfadelta_1 = G1.affine(G1.mulScalar( G1.g, F.mul(setup.toxic.kalfa, setup.toxic.kdelta)));
-
-    setup.vk_proof.vk_beta_2 = G2.affine(G2.mulScalar( G2.g, setup.toxic.kbeta));
-
-
-    setup.vk_verifier.vk_alfa_1 = G1.affine(G1.mulScalar( G1.g, setup.toxic.kalfa));
-
-    setup.vk_verifier.vk_beta_2 = G2.affine(G2.mulScalar( G2.g, setup.toxic.kbeta));
-    setup.vk_verifier.vk_gamma_2 = G2.affine(G2.mulScalar( G2.g, setup.toxic.kgamma));
-    setup.vk_verifier.vk_delta_2 = G2.affine(G2.mulScalar( G2.g, setup.toxic.kdelta));
-
-    setup.vk_verifier.vk_alfabeta_12 = bn128.pairing( setup.vk_verifier.vk_alfa_1 , setup.vk_verifier.vk_beta_2 );
-
-    for (let s=0; s<circuit.nVars; s++) {
-
-        const A = G1.affine(G1.mulScalar(G1.g, F.mul(setup.toxic.kgamma, v.a_t[s])));
-
-        setup.vk_proof.A[s] = A;
-        setup.vk_proof.Adelta[s] = G1.affine(G1.mulScalar(A, setup.toxic.kdelta));
-
-        const B1 = G1.affine(G1.mulScalar(G1.g, F.mul(setup.toxic.kgamma, v.b_t[s])));
-
-        setup.vk_proof.B1[s] = B1;
-
-        const B2 = G2.affine(G2.mulScalar(G2.g, F.mul(setup.toxic.kgamma, v.b_t[s])));
-
-        setup.vk_proof.B2[s] = B2;
-    }
-
-    for (let s=0; s<=setup.vk_proof.nPublic; s++) {
-
-        let ps =
-            F.add(
-                F.mul(
-                    setup.toxic.kgamma,
-                    v.c_t[s]
-                ),
-                F.add(
-                    F.mul(
-                        setup.toxic.kbeta,
-                        v.a_t[s]
-                    ),
-                    F.mul(
-                        setup.toxic.kalfa,
-                        v.b_t[s]
-                    )
-                )
-            );
-
-        const IC = G1.affine(G1.mulScalar(G1.g, ps));
-        setup.vk_verifier.IC[s]=IC;
-    }
-
-    for (let s=setup.vk_proof.nPublic+1; s<circuit.nVars; s++) {
-        let ps =
-            F.add(
-                F.mul(
-                    gammaSquare,
-                    v.c_t[s]
-                ),
-                F.add(
-                    F.mul(
-                        F.mul(setup.toxic.kbeta, setup.toxic.kgamma),
-                        v.a_t[s]
-                    ),
-                    F.mul(
-                        F.mul(setup.toxic.kalfa, setup.toxic.kgamma),
-                        v.b_t[s]
-                    )
-                )
-            );
-
-        const C = G1.affine(G1.mulScalar(G1.g, ps));
-        setup.vk_proof.C[s]=C;
-    }
-
-    // Calculate HExps
-
-    const maxH = setup.vk_proof.domainSize+1;
-
-    setup.vk_proof.hExps = new Array(maxH);
-
-    const zod = F.mul(gammaSquare, v.z_t);
-
-    setup.vk_proof.hExps[0] = G1.affine(G1.mulScalar(G1.g, zod));
-    let eT = setup.toxic.t;
-    for (let i=1; i<maxH; i++) {
-        setup.vk_proof.hExps[i] = G1.affine(G1.mulScalar(G1.g, F.mul(eT, zod)));
-        eT = F.mul(eT, setup.toxic.t);
-    }
-}
-
-
-},{"big-integer":47,"ffjavascript":51}],41:[function(require,module,exports){
-/*
-    Copyright 2018 0kims association.
-
-    This file is part of snarkjs.
-
-    snarkjs is a free software: you can redistribute it and/or
-    modify it under the terms of the GNU General Public License as published by the
-    Free Software Foundation, either version 3 of the License, or (at your option)
-    any later version.
-
-    snarkjs is distributed in the hope that it will be useful,
-    but WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY
-    or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for
-    more details.
-
-    You should have received a copy of the GNU General Public License along with
-    snarkjs. If not, see <https://www.gnu.org/licenses/>.
-*/
-
-const bigInt = require("big-integer");
-
-const bn128 = require("ffjavascript").bn128;
-const PolField = require("ffjavascript").PolField;
-const ZqField = require("ffjavascript").ZqField;
-
-const G1 = bn128.G1;
-const G2 = bn128.G2;
-const PolF = new PolField(new ZqField(bn128.r));
-const F = new ZqField(bn128.r);
-
-module.exports = function setup(circuit) {
-    const setup = {
-        vk_proof : {
-            protocol: "original",
-            nVars: circuit.nVars,
-            nPublic: circuit.nPubInputs + circuit.nOutputs
-        },
-        vk_verifier: {
-            protocol: "original",
-            nPublic: circuit.nPubInputs + circuit.nOutputs
-        },
-        toxic: {}
-    };
-
-
-    setup.vk_proof.domainBits = PolF.log2(circuit.nConstraints + circuit.nPubInputs + circuit.nOutputs +1 -1) +1;
-    setup.vk_proof.domainSize = 1 << setup.vk_proof.domainBits;
-
-    calculatePolinomials(setup, circuit);
-    setup.toxic.t = F.random();
-    calculateEncriptedValuesAtT(setup, circuit);
-    calculateHexps(setup, circuit);
-
-    return setup;
-};
-
-
-function calculatePolinomials(setup, circuit) {
-
-    setup.vk_proof.polsA = new Array(circuit.nVars);
-    setup.vk_proof.polsB = new Array(circuit.nVars);
-    setup.vk_proof.polsC = new Array(circuit.nVars);
-    for (let i=0; i<circuit.nVars; i++) {
-        setup.vk_proof.polsA[i] = {};
-        setup.vk_proof.polsB[i] = {};
-        setup.vk_proof.polsC[i] = {};
-    }
-    for (let c=0; c<circuit.nConstraints; c++) {
-
-        for (let s in circuit.constraints[c][0]) {
-            setup.vk_proof.polsA[s][c] = bigInt(circuit.constraints[c][0][s]);
-        }
-        for (let s in circuit.constraints[c][1]) {
-            setup.vk_proof.polsB[s][c] = bigInt(circuit.constraints[c][1][s]);
-        }
-        for (let s in circuit.constraints[c][2]) {
-            setup.vk_proof.polsC[s][c] = bigInt(circuit.constraints[c][2][s]);
-        }
-    }
-
-    /**
-     * add and process the constraints
-     *     input_i * 0 = 0
-     * to ensure soundness of input consistency
-     */
-    for (let i = 0; i < circuit.nPubInputs + circuit.nOutputs + 1; ++i)
-    {
-        setup.vk_proof.polsA[i][circuit.nConstraints + i] = F.one;
-    }
-}
-
-function calculateValuesAtT(setup, circuit) {
-    const z_t = PolF.computeVanishingPolinomial(setup.vk_proof.domainBits, setup.toxic.t);
-    const u = PolF.evaluateLagrangePolynomials(setup.vk_proof.domainBits, setup.toxic.t);
-
-    const a_t = new Array(circuit.nVars).fill(F.zero);
-    const b_t = new Array(circuit.nVars).fill(F.zero);
-    const c_t = new Array(circuit.nVars).fill(F.zero);
-
-    // TODO: substitute setup.polsA for coeficients
-    for (let s=0; s<circuit.nVars; s++) {
-        for (let c in setup.vk_proof.polsA[s]) {
-            a_t[s] = F.add(a_t[s], F.mul(u[c], setup.vk_proof.polsA[s][c]));
-        }
-        for (let c in setup.vk_proof.polsB[s]) {
-            b_t[s] = F.add(b_t[s], F.mul(u[c], setup.vk_proof.polsB[s][c]));
-        }
-        for (let c in setup.vk_proof.polsC[s]) {
-            c_t[s] = F.add(c_t[s], F.mul(u[c], setup.vk_proof.polsC[s][c]));
-        }
-    }
-
-    return {a_t, b_t, c_t, z_t};
-
-}
-
-
-
-
-function calculateEncriptedValuesAtT(setup, circuit) {
-
-    const v = calculateValuesAtT(setup, circuit);
-    setup.vk_proof.A = new Array(circuit.nVars+1);
-    setup.vk_proof.B = new Array(circuit.nVars+1);
-    setup.vk_proof.C = new Array(circuit.nVars+1);
-    setup.vk_proof.Ap = new Array(circuit.nVars+1);
-    setup.vk_proof.Bp = new Array(circuit.nVars+1);
-    setup.vk_proof.Cp = new Array(circuit.nVars+1);
-    setup.vk_proof.Kp = new Array(circuit.nVars+3);
-    setup.vk_verifier.IC = new Array(circuit.nPubInputs);
-    setup.vk_verifier.IC = new Array(circuit.nPubInputs + circuit.nOutputs + 1);
-
-    setup.toxic.ka = F.random();
-    setup.toxic.kb = F.random();
-    setup.toxic.kc = F.random();
-    setup.toxic.ra = F.random();
-    setup.toxic.rb = F.random();
-    setup.toxic.rc = F.mul(setup.toxic.ra, setup.toxic.rb);
-    setup.toxic.kbeta = F.random();
-    setup.toxic.kgamma = F.random();
-
-    const gb = F.mul(setup.toxic.kbeta, setup.toxic.kgamma);
-
-    setup.vk_verifier.vk_a = G2.affine(G2.mulScalar( G2.g, setup.toxic.ka));
-    setup.vk_verifier.vk_b = G1.affine(G1.mulScalar( G1.g, setup.toxic.kb));
-    setup.vk_verifier.vk_c = G2.affine(G2.mulScalar( G2.g, setup.toxic.kc));
-    setup.vk_verifier.vk_gb_1 = G1.affine(G1.mulScalar( G1.g, gb));
-    setup.vk_verifier.vk_gb_2 = G2.affine(G2.mulScalar( G2.g, gb));
-    setup.vk_verifier.vk_g = G2.affine(G2.mulScalar( G2.g, setup.toxic.kgamma));
-
-    for (let s=0; s<circuit.nVars; s++) {
-
-        // A[i] = G1 * polA(t)
-        const raat = F.mul(setup.toxic.ra, v.a_t[s]);
-        const A = G1.affine(G1.mulScalar(G1.g, raat));
-
-        setup.vk_proof.A[s] = A;
-
-        if (s <= setup.vk_proof.nPublic) {
-            setup.vk_verifier.IC[s]=A;
-        }
-
-
-        // B1[i] = G1 * polB(t)
-        const rbbt = F.mul(setup.toxic.rb, v.b_t[s]);
-        const B1 = G1.affine(G1.mulScalar(G1.g, rbbt));
-
-        // B2[i] = G2 * polB(t)
-        const B2 = G2.affine(G2.mulScalar(G2.g, rbbt));
-
-        setup.vk_proof.B[s]=B2;
-
-        // C[i] = G1 * polC(t)
-        const rcct = F.mul(setup.toxic.rc, v.c_t[s]);
-        const C = G1.affine(G1.mulScalar( G1.g, rcct));
-        setup.vk_proof.C[s] =C;
-
-        // K = G1 * (A+B+C)
-
-        const kt = F.add(F.add(raat, rbbt), rcct);
-        const K = G1.affine(G1.mulScalar( G1.g, kt));
-
-        /*
-        // Comment this lines to improve the process
-                const Ktest = G1.affine(G1.add(G1.add(A, B1), C));
-
-                if (!G1.equals(K, Ktest)) {
-                    console.log ("=====FAIL======");
-                }
-        */
-
-        if (s > setup.vk_proof.nPublic) {
-            setup.vk_proof.Ap[s] = G1.affine(G1.mulScalar(A, setup.toxic.ka));
-        }
-        setup.vk_proof.Bp[s] = G1.affine(G1.mulScalar(B1, setup.toxic.kb));
-        setup.vk_proof.Cp[s] = G1.affine(G1.mulScalar(C, setup.toxic.kc));
-        setup.vk_proof.Kp[s] = G1.affine(G1.mulScalar(K, setup.toxic.kbeta));
-    }
-
-    // Extra coeficients
-    const A = G1.mulScalar( G1.g, F.mul(setup.toxic.ra, v.z_t));
-    setup.vk_proof.A[circuit.nVars] = G1.affine(A);
-    setup.vk_proof.Ap[circuit.nVars] = G1.affine(G1.mulScalar(A, setup.toxic.ka));
-
-    const B1 = G1.mulScalar( G1.g, F.mul(setup.toxic.rb, v.z_t));
-    const B2 = G2.mulScalar( G2.g, F.mul(setup.toxic.rb, v.z_t));
-    setup.vk_proof.B[circuit.nVars] = G2.affine(B2);
-    setup.vk_proof.Bp[circuit.nVars] = G1.affine(G1.mulScalar(B1, setup.toxic.kb));
-
-    const C = G1.mulScalar( G1.g, F.mul(setup.toxic.rc, v.z_t));
-    setup.vk_proof.C[circuit.nVars] = G1.affine(C);
-    setup.vk_proof.Cp[circuit.nVars] = G1.affine(G1.mulScalar(C, setup.toxic.kc));
-
-    setup.vk_proof.Kp[circuit.nVars  ] = G1.affine(G1.mulScalar(A, setup.toxic.kbeta));
-    setup.vk_proof.Kp[circuit.nVars+1] = G1.affine(G1.mulScalar(B1, setup.toxic.kbeta));
-    setup.vk_proof.Kp[circuit.nVars+2] = G1.affine(G1.mulScalar(C, setup.toxic.kbeta));
-
-//    setup.vk_verifier.A[0] = G1.affine(G1.add(setup.vk_verifier.A[0], setup.vk_proof.A[circuit.nVars]));
-
-    // vk_z
-    setup.vk_verifier.vk_z = G2.affine(G2.mulScalar(
-        G2.g,
-        F.mul(setup.toxic.rc, v.z_t)));
-}
-
-function calculateHexps(setup) {
-
-    const maxH = setup.vk_proof.domainSize+1;
-
-    setup.vk_proof.hExps = new Array(maxH);
-    setup.vk_proof.hExps[0] = G1.g;
-    let eT = setup.toxic.t;
-    for (let i=1; i<maxH; i++) {
-        setup.vk_proof.hExps[i] = G1.affine(G1.mulScalar(G1.g, eT));
-        eT = F.mul(eT, setup.toxic.t);
-    }
-}
-
-
-},{"big-integer":47,"ffjavascript":51}],42:[function(require,module,exports){
-(function (Buffer){
-const bigInt = require("big-integer");
-
-
-module.exports.stringifyBigInts = stringifyBigInts;
-module.exports.unstringifyBigInts = unstringifyBigInts;
-module.exports.beBuff2int = beBuff2int;
-module.exports.beInt2Buff = beInt2Buff;
-
-function beBuff2int(buff) {
-    let res = bigInt.zero;
-    for (let i=0; i<buff.length; i++) {
-        const n = bigInt(buff[buff.length - i - 1]);
-        res = res.add(n.shiftLeft(i*8));
-    }
-    return res;
-}
-
-function beInt2Buff(n, len) {
-    let r = n;
-    let o =len-1;
-    const buff = Buffer.alloc(len);
-    while ((r.gt(bigInt.zero))&&(o>=0)) {
-        let c = Number(r.and(bigInt("255")));
-        buff[o] = c;
-        o--;
-        r = r.shiftRight(8);
-    }
-    if (r.greater(bigInt.zero)) throw new Error("Number does not feed in buffer");
-    return buff;
-}
-
-function stringifyBigInts(o) {
-    if ((typeof(o) == "bigint") || o.eq !== undefined)  {
-        return o.toString(10);
-    } else if (Array.isArray(o)) {
-        return o.map(stringifyBigInts);
-    } else if (typeof o == "object") {
-        const res = {};
-        for (let k in o) {
-            res[k] = stringifyBigInts(o[k]);
-        }
-        return res;
-    } else {
-        return o;
-    }
-}
-
-function unstringifyBigInts(o) {
-    if ((typeof(o) == "string") && (/^[0-9]+$/.test(o) ))  {
-        return bigInt(o);
-    } else if (Array.isArray(o)) {
-        return o.map(unstringifyBigInts);
-    } else if (typeof o == "object") {
-        const res = {};
-        for (let k in o) {
-            res[k] = unstringifyBigInts(o[k]);
-        }
-        return res;
-    } else {
-        return o;
-    }
-}
-
-
-}).call(this,require("buffer").Buffer)
-},{"big-integer":47,"buffer":7}],43:[function(require,module,exports){
-/*
-    Copyright 2018 0kims association.
-
-    This file is part of snarkjs.
-
-    snarkjs is a free software: you can redistribute it and/or
-    modify it under the terms of the GNU General Public License as published by the
-    Free Software Foundation, either version 3 of the License, or (at your option)
-    any later version.
-
-    snarkjs is distributed in the hope that it will be useful,
-    but WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY
-    or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for
-    more details.
-
-    You should have received a copy of the GNU General Public License along with
-    snarkjs. If not, see <https://www.gnu.org/licenses/>.
-*/
-
-/* Implementation of this paper: https://eprint.iacr.org/2016/260.pdf */
-
-
-const bn128 = require("ffjavascript").bn128;
-
-const G1 = bn128.G1;
-
-module.exports = function isValid(vk_verifier, proof, publicSignals) {
-
-    let cpub = vk_verifier.IC[0];
-    for (let s= 0; s< vk_verifier.nPublic; s++) {
-        cpub  = G1.add( cpub, G1.mulScalar( vk_verifier.IC[s+1], publicSignals[s]));
-    }
-
-    if (! bn128.F12.eq(
-        bn128.pairing( proof.pi_a , proof.pi_b ),
-        bn128.F12.mul(
-            vk_verifier.vk_alfabeta_12,
-            bn128.F12.mul(
-                bn128.pairing( cpub , vk_verifier.vk_gamma_2 ),
-                bn128.pairing( proof.pi_c , vk_verifier.vk_delta_2 )
-            ))))
-        return false;
-
-    return true;
-};
-
-},{"ffjavascript":51}],44:[function(require,module,exports){
-(function (Buffer){
-/*
-    Copyright 2018 0kims association.
-
-    This file is part of snarkjs.
-
-    snarkjs is a free software: you can redistribute it and/or
-    modify it under the terms of the GNU General Public License as published by the
-    Free Software Foundation, either version 3 of the License, or (at your option)
-    any later version.
-
-    snarkjs is distributed in the hope that it will be useful,
-    but WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY
-    or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for
-    more details.
-
-    You should have received a copy of the GNU General Public License along with
-    snarkjs. If not, see <https://www.gnu.org/licenses/>.
-*/
-
-/* Implementation of this paper: https://eprint.iacr.org/2016/260.pdf */
-
-
-const bn128 = require("ffjavascript").bn128;
-const createKeccakHash = require("keccak");
-const utils = require("./utils");
-
-const G1 = bn128.G1;
-const G2 = bn128.G2;
-
-module.exports = function isValid(vk_verifier, proof, publicSignals) {
-
-    let cpub = vk_verifier.IC[0];
-    for (let s= 0; s< vk_verifier.nPublic; s++) {
-        cpub  = G1.add( cpub, G1.mulScalar( vk_verifier.IC[s+1], publicSignals[s]));
-    }
-
-    const buff = Buffer.concat([
-        utils.beInt2Buff(proof.pi_a[0], 32),
-        utils.beInt2Buff(proof.pi_a[1], 32),
-        utils.beInt2Buff(proof.pi_b[0][0], 32),
-        utils.beInt2Buff(proof.pi_b[0][1], 32),
-        utils.beInt2Buff(proof.pi_b[1][0], 32),
-        utils.beInt2Buff(proof.pi_b[1][1], 32),
-    ]);
-
-    const h1buff = createKeccakHash("keccak256").update(buff).digest();
-    const h2buff = createKeccakHash("keccak256").update(h1buff).digest();
-
-    const h1 = utils.beBuff2int(h1buff);
-    const h2 = utils.beBuff2int(h2buff);
-
-
-    // const h1 = bigInt.zero;
-    // const h2 = bigInt.zero;
-
-    // console.log(h1.toString());
-    // console.log(h2.toString());
-
-
-    if (! bn128.F12.eq(
-        bn128.pairing(
-            G1.add(proof.pi_a, G1.mulScalar(G1.g, h1)),
-            G2.add(proof.pi_b, G2.mulScalar(vk_verifier.vk_delta_2, h2))
-        ),
-        bn128.F12.mul(
-            vk_verifier.vk_alfabeta_12,
-            bn128.F12.mul(
-                bn128.pairing( cpub , vk_verifier.vk_gamma_2 ),
-                bn128.pairing( proof.pi_c , G2.g )
-            ))))
-        return false;
-
-    return true;
-};
-
-}).call(this,require("buffer").Buffer)
-},{"./utils":42,"buffer":7,"ffjavascript":51,"keccak":60}],45:[function(require,module,exports){
-/*
-    Copyright 2018 0kims association.
-
-    This file is part of snarkjs.
-
-    snarkjs is a free software: you can redistribute it and/or
-    modify it under the terms of the GNU General Public License as published by the
-    Free Software Foundation, either version 3 of the License, or (at your option)
-    any later version.
-
-    snarkjs is distributed in the hope that it will be useful,
-    but WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY
-    or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for
-    more details.
-
-    You should have received a copy of the GNU General Public License along with
-    snarkjs. If not, see <https://www.gnu.org/licenses/>.
-*/
-
-const bn128 = require("ffjavascript").bn128;
-
-const G1 = bn128.G1;
-const G2 = bn128.G2;
-
-module.exports = function isValid(vk_verifier, proof, publicSignals) {
-
-    let full_pi_a = vk_verifier.IC[0];
-    for (let s= 0; s< vk_verifier.nPublic; s++) {
-        full_pi_a  = G1.add( full_pi_a, G1.mulScalar( vk_verifier.IC[s+1], publicSignals[s]));
-    }
-
-    full_pi_a  = G1.add( full_pi_a, proof.pi_a);
-
-    if (! bn128.F12.eq(
-        bn128.pairing( proof.pi_a , vk_verifier.vk_a ),
-        bn128.pairing( proof.pi_ap , G2.g )))
-        return false;
-
-    if (! bn128.F12.eq(
-        bn128.pairing( vk_verifier.vk_b,  proof.pi_b ),
-        bn128.pairing( proof.pi_bp , G2.g )))
-        return false;
-
-    if (! bn128.F12.eq(
-        bn128.pairing( proof.pi_c , vk_verifier.vk_c ),
-        bn128.pairing( proof.pi_cp , G2.g )))
-        return false;
-
-    if (! bn128.F12.eq(
-        bn128.F12.mul(
-            bn128.pairing( G1.add(full_pi_a, proof.pi_c) , vk_verifier.vk_gb_2 ),
-            bn128.pairing( vk_verifier.vk_gb_1 , proof.pi_b )
-        ),
-        bn128.pairing( proof.pi_kp , vk_verifier.vk_g )))
-        return false;
-
-    if (! bn128.F12.eq(
-        bn128.pairing( full_pi_a , proof.pi_b  ),
-        bn128.F12.mul(
-            bn128.pairing( proof.pi_h , vk_verifier.vk_z ),
-            bn128.pairing( proof.pi_c , G2.g  )
-        )))
-        return false;
-
-    return true;
-};
-
-},{"ffjavascript":51}],46:[function(require,module,exports){
-(function (Buffer){
-const zkSnark = require("../index.js");
-const WitnessCalculatorBuilder = require("circom_runtime").WitnessCalculatorBuilder;
-const {stringifyBigInts, unstringifyBigInts} = require("../src/utils.js");
-
-async function w(wasm) {
-        const wc = await WitnessCalculatorBuilder(wasm, {sanityCheck: true});
-        const witness = await wc.calculateWitness({"a": "33", "b": "34"});
-	return witness;
-}
-
-var time = Date.now();
-fetch('circuit/circuit.wasm').then(function(response) {
-  return response.arrayBuffer();
-}).then(function(data) {
-  const p = w(new Buffer(data));
-  p.then(function(witness) {
-    txt.innerHTML=txt.innerHTML + " " + (Date.now()-time) + " ms, generating proof... "; time = Date.now();
-    fetch('circuit/proving_key.json').then(function(response) {
-      return response.arrayBuffer();
-    }).then(function(data) {
-      const vk_proof = unstringifyBigInts(JSON.parse(new Buffer(data).toString()));
-      const {proof, publicSignals} = zkSnark.groth.genProof(vk_proof, witness);
-      txt.innerHTML=txt.innerHTML + " " + (Date.now()-time) + " ms, verifying proof... "; time = Date.now();
-      fetch('circuit/verification_key.json').then(function(response) {
-        return response.arrayBuffer();
-      }).then(function(data) {
-	const vk_verifier = unstringifyBigInts(JSON.parse(new Buffer(data).toString()));
-        if(zkSnark.groth.isValid(vk_verifier, proof, publicSignals)) {
-          txt.innerHTML=txt.innerHTML + " " + (Date.now()-time) + " ms";
-	  console.log(proof + " ||||||||||||||||||||| " + publicSignals);
-	  txt.innerHTML=txt.innerHTML + " " + proof + " ||||||||||||||||||||| " + publicSignals;
-        }
-      });
-    });
-  });
-});
-
-// in bundle3.js, search for 20000 and replace it with 10000
-}).call(this,require("buffer").Buffer)
-},{"../index.js":35,"../src/utils.js":42,"buffer":7,"circom_runtime":48}],47:[function(require,module,exports){
 var bigInt = (function (undefined) {
     "use strict";
 
@@ -10185,10 +8556,10 @@ if (typeof define === "function" && define.amd) {
     });
 }
 
-},{}],48:[function(require,module,exports){
+},{}],36:[function(require,module,exports){
 module.exports.WitnessCalculatorBuilder = require("./js/witness_calculator.js");
 
-},{"./js/witness_calculator.js":50}],49:[function(require,module,exports){
+},{"./js/witness_calculator.js":38}],37:[function(require,module,exports){
 /*
 
 Copyright 2020 0KIMS association.
@@ -10269,7 +8640,7 @@ function unstringifyBigInts(o) {
     }
 }
 
-},{"big-integer":47,"fnv-plus":59}],50:[function(require,module,exports){
+},{"big-integer":35,"fnv-plus":39}],38:[function(require,module,exports){
 /* globals WebAssembly */
 /*
 
@@ -10529,1895 +8900,7 @@ class WitnessCalculator {
 
 
 
-},{"./utils":49,"big-integer":47}],51:[function(require,module,exports){
-exports.ZqField = require("./src/zqfield.js");
-const Bn128 = require("./src/bn128.js");
-exports.Bn128 = Bn128;
-exports.bn128 = new Bn128();
-exports.PolField = require("./src/polfield.js");
-exports.F2Field = require("./src/f2field");
-exports.F3Field = require("./src/f3field");
-
-
-},{"./src/bn128.js":52,"./src/f2field":53,"./src/f3field":54,"./src/polfield.js":57,"./src/zqfield.js":58}],52:[function(require,module,exports){
-/*
-    Copyright 2018 0kims association.
-
-    This file is part of snarkjs.
-
-    snarkjs is a free software: you can redistribute it and/or
-    modify it under the terms of the GNU General Public License as published by the
-    Free Software Foundation, either version 3 of the License, or (at your option)
-    any later version.
-
-    snarkjs is distributed in the hope that it will be useful,
-    but WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY
-    or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for
-    more details.
-
-    You should have received a copy of the GNU General Public License along with
-    snarkjs. If not, see <https://www.gnu.org/licenses/>.
-*/
-
-const bigInt = require("big-integer");
-
-const F1Field = require("./zqfield");
-const F2Field = require("./f2field.js");
-const F3Field = require("./f3field.js");
-const GCurve = require("./gcurve.js");
-
-class BN128 {
-
-    constructor() {
-
-        this.q = bigInt("21888242871839275222246405745257275088696311157297823662689037894645226208583");
-        this.r = bigInt("21888242871839275222246405745257275088548364400416034343698204186575808495617");
-        this.g1 = [ bigInt(1), bigInt(2), bigInt(1)];
-        this.g2 = [
-            [
-                bigInt("10857046999023057135944570762232829481370756359578518086990519993285655852781"),
-                bigInt("11559732032986387107991004021392285783925812861821192530917403151452391805634")
-            ],
-            [
-                bigInt("8495653923123431417604973247489272438418190587263600148770280649306958101930"),
-                bigInt("4082367875863433681332203403145435568316851327593401208105741076214120093531")
-            ],
-            [
-                bigInt("1"),
-                bigInt("0")
-            ]
-        ];
-
-        this.nonResidueF2 = bigInt("21888242871839275222246405745257275088696311157297823662689037894645226208582");
-        this.nonResidueF6 = [ bigInt("9"), bigInt("1") ];
-
-        this.F1 = new F1Field(this.q);
-        this.F2 = new F2Field(this.F1, this.nonResidueF2);
-        this.G1 = new GCurve(this.F1, this.g1);
-        this.G2 = new GCurve(this.F2, this.g2);
-        this.F6 = new F3Field(this.F2, this.nonResidueF6);
-        this.F12 = new F2Field(this.F6, this.nonResidueF6);
-        this.Fr = new F1Field(this.r);
-        const self = this;
-        this.F12._mulByNonResidue = function(a) {
-            return [self.F2.mul(this.nonResidue, a[2]), a[0], a[1]];
-        };
-
-        this._preparePairing();
-
-    }
-
-    _preparePairing() {
-        this.loopCount = bigInt("29793968203157093288");// CONSTANT
-
-        // Set loopCountNeg
-        if (this.loopCount.isNegative()) {
-            this.loopCount = this.loopCount.neg();
-            this.loopCountNeg = true;
-        } else {
-            this.loopCountNeg = false;
-        }
-
-        // Set loop_count_bits
-        let lc = this.loopCount;
-        this.loop_count_bits = []; // Constant
-        while (!lc.isZero()) {
-            this.loop_count_bits.push( lc.isOdd() );
-            lc = lc.shiftRight(1);
-        }
-
-        this.two_inv = this.F1.inv(bigInt(2));
-
-        this.coef_b = bigInt(3);
-        this.twist = [bigInt(9) , bigInt(1)];
-        this.twist_coeff_b = this.F2.mulScalar(  this.F2.inv(this.twist), this.coef_b  );
-
-        this.frobenius_coeffs_c1_1 = bigInt("21888242871839275222246405745257275088696311157297823662689037894645226208582");
-        this.twist_mul_by_q_X =
-            [
-                bigInt("21575463638280843010398324269430826099269044274347216827212613867836435027261"),
-                bigInt("10307601595873709700152284273816112264069230130616436755625194854815875713954")
-            ];
-        this.twist_mul_by_q_Y =
-            [
-                bigInt("2821565182194536844548159561693502659359617185244120367078079554186484126554"),
-                bigInt("3505843767911556378687030309984248845540243509899259641013678093033130930403")
-            ];
-
-        this.final_exponent = bigInt("552484233613224096312617126783173147097382103762957654188882734314196910839907541213974502761540629817009608548654680343627701153829446747810907373256841551006201639677726139946029199968412598804882391702273019083653272047566316584365559776493027495458238373902875937659943504873220554161550525926302303331747463515644711876653177129578303191095900909191624817826566688241804408081892785725967931714097716709526092261278071952560171111444072049229123565057483750161460024353346284167282452756217662335528813519139808291170539072125381230815729071544861602750936964829313608137325426383735122175229541155376346436093930287402089517426973178917569713384748081827255472576937471496195752727188261435633271238710131736096299798168852925540549342330775279877006784354801422249722573783561685179618816480037695005515426162362431072245638324744480");
-
-    }
-
-
-    pairing(p1, p2) {
-
-        const pre1 = this.precomputeG1(p1);
-        const pre2 = this.precomputeG2(p2);
-
-        const r1 = this.millerLoop(pre1, pre2);
-
-        const res = this.finalExponentiation(r1);
-
-        return res;
-    }
-
-
-    precomputeG1(p) {
-        const Pcopy = this.G1.affine(p);
-
-        const res = {};
-        res.PX = Pcopy[0];
-        res.PY = Pcopy[1];
-
-        return res;
-    }
-
-    precomputeG2(p) {
-
-        const Qcopy = this.G2.affine(p);
-
-        const res = {
-            QX: Qcopy[0],
-            QY: Qcopy[1],
-            coeffs: []
-        };
-
-        const R = {
-            X: Qcopy[0],
-            Y: Qcopy[1],
-            Z: this.F2.one
-        };
-
-        let c;
-
-        for (let i = this.loop_count_bits.length-2; i >= 0; --i)
-        {
-            const bit = this.loop_count_bits[i];
-
-            c = this._doubleStep(R);
-            res.coeffs.push(c);
-
-            if (bit)
-            {
-                c = this._addStep(Qcopy, R);
-                res.coeffs.push(c);
-            }
-        }
-
-        const Q1 = this.G2.affine(this._g2MulByQ(Qcopy));
-        if (!this.F2.eq(Q1[2], this.F2.one))
-        {
-            throw new Error("Expected values are not equal");
-        }
-        const Q2 = this.G2.affine(this._g2MulByQ(Q1));
-        if (!this.F2.eq(Q2[2], this.F2.one))
-        {
-            throw new Error("Expected values are not equal");
-        }
-
-        if (this.loopCountNeg)
-        {
-            R.Y = this.F2.neg(R.Y);
-        }
-        Q2[1] = this.F2.neg(Q2[1]);
-
-        c = this._addStep(Q1, R);
-        res.coeffs.push(c);
-
-        c = this._addStep(Q2, R);
-        res.coeffs.push(c);
-
-        return res;
-    }
-
-    millerLoop(pre1, pre2) {
-        let f = this.F12.one;
-
-        let idx = 0;
-
-        let c;
-
-        for (let i = this.loop_count_bits.length-2; i >= 0; --i)
-        {
-            const bit = this.loop_count_bits[i];
-
-            /* code below gets executed for all bits (EXCEPT the MSB itself) of
-               alt_bn128_param_p (skipping leading zeros) in MSB to LSB
-               order */
-
-            c = pre2.coeffs[idx++];
-            f = this.F12.square(f);
-            f = this._mul_by_024(
-                f,
-                c.ell_0,
-                this.F2.mulScalar(c.ell_VW , pre1.PY),
-                this.F2.mulScalar(c.ell_VV , pre1.PX));
-
-            if (bit)
-            {
-                c = pre2.coeffs[idx++];
-                f = this._mul_by_024(
-                    f,
-                    c.ell_0,
-                    this.F2.mulScalar(c.ell_VW, pre1.PY),
-                    this.F2.mulScalar(c.ell_VV, pre1.PX));
-            }
-
-        }
-
-        if (this.loopCountNeg)
-        {
-            f = this.F12.inverse(f);
-        }
-
-        c = pre2.coeffs[idx++];
-        f = this._mul_by_024(
-            f,
-            c.ell_0,
-            this.F2.mulScalar(c.ell_VW, pre1.PY),
-            this.F2.mulScalar(c.ell_VV, pre1.PX));
-
-        c = pre2.coeffs[idx++];
-        f = this._mul_by_024(
-            f,
-            c.ell_0,
-            this.F2.mulScalar(c.ell_VW, pre1.PY),
-            this.F2.mulScalar(c.ell_VV, pre1.PX));
-
-        return f;
-    }
-
-    finalExponentiation(elt) {
-        // TODO: There is an optimization in FF
-
-        const res = this.F12.exp(elt,this.final_exponent);
-
-        return res;
-    }
-
-    _doubleStep(current) {
-        const X = current.X;
-        const Y = current.Y;
-        const Z = current.Z;
-
-        const A = this.F2.mulScalar(this.F2.mul(X,Y), this.two_inv);                     // A = X1 * Y1 / 2
-        const B = this.F2.square(Y);                           // B = Y1^2
-        const C = this.F2.square(Z);                           // C = Z1^2
-        const D = this.F2.add(C, this.F2.add(C,C));            // D = 3 * C
-        const E = this.F2.mul(this.twist_coeff_b, D);     // E = twist_b * D
-        const F = this.F2.add(E, this.F2.add(E,E));            // F = 3 * E
-        const G =
-            this.F2.mulScalar(
-                this.F2.add( B , F ),
-                this.two_inv);                            // G = (B+F)/2
-        const H =
-            this.F2.sub(
-                this.F2.square( this.F2.add(Y,Z) ),
-                this.F2.add( B , C));                          // H = (Y1+Z1)^2-(B+C)
-        const I = this.F2.sub(E, B);                           // I = E-B
-        const J = this.F2.square(X);                           // J = X1^2
-        const E_squared = this.F2.square(E);                   // E_squared = E^2
-
-        current.X = this.F2.mul( A, this.F2.sub(B,F) );        // X3 = A * (B-F)
-        current.Y =
-            this.F2.sub(
-                this.F2.sub( this.F2.square(G) , E_squared ),
-                this.F2.add( E_squared , E_squared ));         // Y3 = G^2 - 3*E^2
-        current.Z = this.F2.mul( B, H );                       // Z3 = B * H
-
-        const c = {
-            ell_0 : this.F2.mul( I, this.twist),          // ell_0 = xi * I
-            ell_VW: this.F2.neg( H ),                          // ell_VW = - H (later: * yP)
-            ell_VV: this.F2.add( J , this.F2.add(J,J) )        // ell_VV = 3*J (later: * xP)
-        };
-
-        return c;
-    }
-
-    _addStep(base, current) {
-
-        const X1 = current.X;
-        const Y1 = current.Y;
-        const Z1 = current.Z;
-        const x2 = base[0];
-        const y2 = base[1];
-
-        const D = this.F2.sub( X1, this.F2.mul(x2,Z1) );  // D = X1 - X2*Z1
-
-//        console.log("Y: "+ A[0].affine(this.q).toString(16));
-
-        const E = this.F2.sub( Y1, this.F2.mul(y2,Z1) );  // E = Y1 - Y2*Z1
-        const F = this.F2.square(D);                      // F = D^2
-        const G = this.F2.square(E);                      // G = E^2
-        const H = this.F2.mul(D,F);                       // H = D*F
-        const I = this.F2.mul(X1,F);                      // I = X1 * F
-        const J =
-            this.F2.sub(
-                this.F2.add( H, this.F2.mul(Z1,G) ),
-                this.F2.add( I, I ));                     // J = H + Z1*G - (I+I)
-
-        current.X = this.F2.mul( D , J );                 // X3 = D*J
-        current.Y =
-            this.F2.sub(
-                this.F2.mul( E , this.F2.sub(I,J) ),
-                this.F2.mul( H , Y1));                    // Y3 = E*(I-J)-(H*Y1)
-        current.Z = this.F2.mul(Z1,H);
-        const c = {
-            ell_0 :
-                this.F2.mul(
-                    this.twist,
-                    this.F2.sub(
-                        this.F2.mul(E , x2),
-                        this.F2.mul(D , y2))),            // ell_0 = xi * (E * X2 - D * Y2)
-            ell_VV : this.F2.neg(E),                      // ell_VV = - E (later: * xP)
-            ell_VW : D                                    // ell_VW = D (later: * yP )
-        };
-
-        return c;
-    }
-
-    _mul_by_024(a, ell_0, ell_VW, ell_VV) {
-
-        //  Old implementation
-/*
-        const b = [
-            [ell_0, this.F2.zero, ell_VV],
-            [this.F2.zero, ell_VW, this.F2.zero]
-        ];
-
-        return this.F12.mul(a,b);
-*/
-
-        // This is a new implementation,
-        //  But it does not look worthy
-        //  at least in javascript.
-
-        let z0 = a[0][0];
-        let z1 = a[0][1];
-        let z2 = a[0][2];
-        let z3 = a[1][0];
-        let z4 = a[1][1];
-        let z5 = a[1][2];
-
-        const x0 = ell_0;
-        const x2 = ell_VV;
-        const x4 = ell_VW;
-
-        const D0 = this.F2.mul(z0, x0);
-        const D2 = this.F2.mul(z2, x2);
-        const D4 = this.F2.mul(z4, x4);
-        const t2 = this.F2.add(z0, z4);
-        let t1 = this.F2.add(z0, z2);
-        const s0 = this.F2.add(this.F2.add(z1,z3),z5);
-
-        // For z.a_.a_ = z0.
-        let S1 = this.F2.mul(z1, x2);
-        let T3 = this.F2.add(S1, D4);
-        let T4 = this.F2.add( this.F2.mul(this.nonResidueF6, T3),D0);
-        z0 = T4;
-
-        // For z.a_.b_ = z1
-        T3 = this.F2.mul(z5, x4);
-        S1 = this.F2.add(S1, T3);
-        T3 = this.F2.add(T3, D2);
-        T4 = this.F2.mul(this.nonResidueF6, T3);
-        T3 = this.F2.mul(z1, x0);
-        S1 = this.F2.add(S1, T3);
-        T4 = this.F2.add(T4, T3);
-        z1 = T4;
-
-        // For z.a_.c_ = z2
-        let t0 = this.F2.add(x0, x2);
-        T3 = this.F2.sub(
-            this.F2.mul(t1, t0),
-            this.F2.add(D0, D2));
-        T4 = this.F2.mul(z3, x4);
-        S1 = this.F2.add(S1, T4);
-
-        // For z.b_.a_ = z3 (z3 needs z2)
-        t0 = this.F2.add(z2, z4);
-        z2 = this.F2.add(T3, T4);
-        t1 = this.F2.add(x2, x4);
-        T3 = this.F2.sub(
-            this.F2.mul(t0,t1),
-            this.F2.add(D2, D4));
-
-        T4 = this.F2.mul(this.nonResidueF6,  T3);
-        T3 = this.F2.mul(z3, x0);
-        S1 = this.F2.add(S1, T3);
-        T4 = this.F2.add(T4, T3);
-        z3 = T4;
-
-        // For z.b_.b_ = z4
-        T3 = this.F2.mul(z5, x2);
-        S1 = this.F2.add(S1, T3);
-        T4 = this.F2.mul(this.nonResidueF6, T3);
-        t0 = this.F2.add(x0, x4);
-        T3 = this.F2.sub(
-            this.F2.mul(t2,t0),
-            this.F2.add(D0, D4));
-        T4 = this.F2.add(T4, T3);
-        z4 = T4;
-
-        // For z.b_.c_ = z5.
-        t0 = this.F2.add(this.F2.add(x0, x2), x4);
-        T3 = this.F2.sub(this.F2.mul(s0, t0), S1);
-        z5 = T3;
-
-        return [
-            [z0, z1, z2],
-            [z3, z4, z5]
-        ];
-
-
-    }
-
-    _g2MulByQ(p) {
-        const fmx = [p[0][0], this.F1.mul(p[0][1], this.frobenius_coeffs_c1_1 )];
-        const fmy = [p[1][0], this.F1.mul(p[1][1], this.frobenius_coeffs_c1_1 )];
-        const fmz = [p[2][0], this.F1.mul(p[2][1], this.frobenius_coeffs_c1_1 )];
-        return [
-            this.F2.mul(this.twist_mul_by_q_X , fmx),
-            this.F2.mul(this.twist_mul_by_q_Y , fmy),
-            fmz
-        ];
-    }
-}
-
-module.exports = BN128;
-
-},{"./f2field.js":53,"./f3field.js":54,"./gcurve.js":56,"./zqfield":58,"big-integer":47}],53:[function(require,module,exports){
-/*
-    Copyright 2018 0kims association.
-
-    This file is part of snarkjs.
-
-    snarkjs is a free software: you can redistribute it and/or
-    modify it under the terms of the GNU General Public License as published by the
-    Free Software Foundation, either version 3 of the License, or (at your option)
-    any later version.
-
-    snarkjs is distributed in the hope that it will be useful,
-    but WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY
-    or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for
-    more details.
-
-    You should have received a copy of the GNU General Public License along with
-    snarkjs. If not, see <https://www.gnu.org/licenses/>.
-*/
-
-const fUtils = require("./futils.js");
-
-class F2Field {
-    constructor(F, nonResidue) {
-        this.F = F;
-        this.zero = [this.F.zero, this.F.zero];
-        this.one = [this.F.one, this.F.zero];
-        this.nonResidue = nonResidue;
-    }
-
-    _mulByNonResidue(a) {
-        return this.F.mul(this.nonResidue, a);
-    }
-
-    copy(a) {
-        return [this.F.copy(a[0]), this.F.copy(a[1])];
-    }
-
-    add(a, b) {
-        return [
-            this.F.add(a[0], b[0]),
-            this.F.add(a[1], b[1])
-        ];
-    }
-
-    double(a) {
-        return this.add(a,a);
-    }
-
-    sub(a, b) {
-        return [
-            this.F.sub(a[0], b[0]),
-            this.F.sub(a[1], b[1])
-        ];
-    }
-
-    neg(a) {
-        return this.sub(this.zero, a);
-    }
-
-    mul(a, b) {
-        const aA = this.F.mul(a[0] , b[0]);
-        const bB = this.F.mul(a[1] , b[1]);
-
-        return [
-            this.F.add( aA , this._mulByNonResidue(bB)),
-            this.F.sub(
-                this.F.mul(
-                    this.F.add(a[0], a[1]),
-                    this.F.add(b[0], b[1])),
-                this.F.add(aA, bB))];
-    }
-
-    inv(a) {
-        const t0 = this.F.square(a[0]);
-        const t1 = this.F.square(a[1]);
-        const t2 = this.F.sub(t0, this._mulByNonResidue(t1));
-        const t3 = this.F.inv(t2);
-        return [
-            this.F.mul(a[0], t3),
-            this.F.neg(this.F.mul( a[1], t3)) ];
-    }
-
-    div(a, b) {
-        return this.mul(a, this.inv(b));
-    }
-
-    square(a) {
-        const ab = this.F.mul(a[0] , a[1]);
-
-        /*
-        [
-            (a + b) * (a + non_residue * b) - ab - non_residue * ab,
-            ab + ab
-        ];
-        */
-
-        return [
-            this.F.sub(
-                this.F.mul(
-                    this.F.add(a[0], a[1]) ,
-                    this.F.add(
-                        a[0] ,
-                        this._mulByNonResidue(a[1]))),
-                this.F.add(
-                    ab,
-                    this._mulByNonResidue(ab))),
-            this.F.add(ab, ab)
-        ];
-    }
-
-    isZero(a) {
-        return this.F.isZero(a[0]) && this.F.isZero(a[1]);
-    }
-
-    eq(a, b) {
-        return this.F.eq(a[0], b[0]) && this.F.eq(a[1], b[1]);
-    }
-
-    mulScalar(base, e) {
-        return fUtils.mulScalar(this, base, e);
-    }
-
-    exp(base, e) {
-        return fUtils.exp(this, base, e);
-    }
-
-    toString(a) {
-        return `[ ${this.F.toString(a[0])} , ${this.F.toString(a[1])} ]`;
-    }
-}
-
-module.exports = F2Field;
-
-},{"./futils.js":55}],54:[function(require,module,exports){
-/*
-    Copyright 2018 0kims association.
-
-    This file is part of snarkjs.
-
-    snarkjs is a free software: you can redistribute it and/or
-    modify it under the terms of the GNU General Public License as published by the
-    Free Software Foundation, either version 3 of the License, or (at your option)
-    any later version.
-
-    snarkjs is distributed in the hope that it will be useful,
-    but WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY
-    or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for
-    more details.
-
-    You should have received a copy of the GNU General Public License along with
-    snarkjs. If not, see <https://www.gnu.org/licenses/>.
-*/
-
-const fUtils = require("./futils.js");
-
-class F3Field {
-    constructor(F, nonResidue) {
-        this.F = F;
-        this.zero = [this.F.zero, this.F.zero, this.F.zero];
-        this.one = [this.F.one, this.F.zero, this.F.zero];
-        this.nonResidue = nonResidue;
-    }
-
-    _mulByNonResidue(a) {
-        return this.F.mul(this.nonResidue, a);
-    }
-
-    copy(a) {
-        return [this.F.copy(a[0]), this.F.copy(a[1]), this.F.copy(a[2])];
-    }
-
-    add(a, b) {
-        return [
-            this.F.add(a[0], b[0]),
-            this.F.add(a[1], b[1]),
-            this.F.add(a[2], b[2])
-        ];
-    }
-
-    double(a) {
-        return this.add(a,a);
-    }
-
-    sub(a, b) {
-        return [
-            this.F.sub(a[0], b[0]),
-            this.F.sub(a[1], b[1]),
-            this.F.sub(a[2], b[2])
-        ];
-    }
-
-    neg(a) {
-        return this.sub(this.zero, a);
-    }
-
-    mul(a, b) {
-
-        const aA = this.F.mul(a[0] , b[0]);
-        const bB = this.F.mul(a[1] , b[1]);
-        const cC = this.F.mul(a[2] , b[2]);
-
-        return [
-            this.F.add(
-                aA,
-                this._mulByNonResidue(
-                    this.F.sub(
-                        this.F.mul(
-                            this.F.add(a[1], a[2]),
-                            this.F.add(b[1], b[2])),
-                        this.F.add(bB, cC)))),    // aA + non_residue*((b+c)*(B+C)-bB-cC),
-
-            this.F.add(
-                this.F.sub(
-                    this.F.mul(
-                        this.F.add(a[0], a[1]),
-                        this.F.add(b[0], b[1])),
-                    this.F.add(aA, bB)),
-                this._mulByNonResidue( cC)),   // (a+b)*(A+B)-aA-bB+non_residue*cC
-
-            this.F.add(
-                this.F.sub(
-                    this.F.mul(
-                        this.F.add(a[0], a[2]),
-                        this.F.add(b[0], b[2])),
-                    this.F.add(aA, cC)),
-                bB)];                           // (a+c)*(A+C)-aA+bB-cC)
-    }
-
-    inv(a) {
-        const t0 = this.F.square(a[0]);             // t0 = a^2 ;
-        const t1 = this.F.square(a[1]);             // t1 = b^2 ;
-        const t2 = this.F.square(a[2]);             // t2 = c^2;
-        const t3 = this.F.mul(a[0],a[1]);           // t3 = ab
-        const t4 = this.F.mul(a[0],a[2]);           // t4 = ac
-        const t5 = this.F.mul(a[1],a[2]);           // t5 = bc;
-        // c0 = t0 - non_residue * t5;
-        const c0 = this.F.sub(t0, this._mulByNonResidue(t5));
-        // c1 = non_residue * t2 - t3;
-        const c1 = this.F.sub(this._mulByNonResidue(t2), t3);
-        const c2 = this.F.sub(t1, t4);              // c2 = t1-t4
-
-        // t6 = (a * c0 + non_residue * (c * c1 + b * c2)).inv();
-        const t6 =
-            this.F.inv(
-                this.F.add(
-                    this.F.mul(a[0], c0),
-                    this._mulByNonResidue(
-                        this.F.add(
-                            this.F.mul(a[2], c1),
-                            this.F.mul(a[1], c2)))));
-
-        return [
-            this.F.mul(t6, c0),         // t6*c0
-            this.F.mul(t6, c1),         // t6*c1
-            this.F.mul(t6, c2)];        // t6*c2
-    }
-
-    div(a, b) {
-        return this.mul(a, this.inv(b));
-    }
-
-    square(a) {
-        const s0 = this.F.square(a[0]);                   // s0 = a^2
-        const ab = this.F.mul(a[0], a[1]);                // ab = a*b
-        const s1 = this.F.add(ab, ab);                    // s1 = 2ab;
-        const s2 = this.F.square(
-            this.F.add(this.F.sub(a[0],a[1]), a[2]));     // s2 = (a - b + c)^2;
-        const bc = this.F.mul(a[1],a[2]);                 // bc = b*c
-        const s3 = this.F.add(bc, bc);                    // s3 = 2*bc
-        const s4 = this.F.square(a[2]);                   // s4 = c^2
-
-
-        return [
-            this.F.add(
-                s0,
-                this._mulByNonResidue(s3)),           // s0 + non_residue * s3,
-            this.F.add(
-                s1,
-                this._mulByNonResidue(s4)),           // s1 + non_residue * s4,
-            this.F.sub(
-                this.F.add( this.F.add(s1, s2) , s3 ),
-                this.F.add(s0, s4))];                      // s1 + s2 + s3 - s0 - s4
-    }
-
-    isZero(a) {
-        return this.F.isZero(a[0]) && this.F.isZero(a[1]) && this.F.isZero(a[2]);
-    }
-
-    eq(a, b) {
-        return this.F.eq(a[0], b[0]) && this.F.eq(a[1], b[1]) && this.F.eq(a[2], b[2]);
-    }
-
-    affine(a) {
-        return [this.F.affine(a[0]), this.F.affine(a[1]), this.F.affine(a[2])];
-    }
-
-    mulScalar(base, e) {
-        return fUtils.mulScalar(this, base, e);
-    }
-
-    exp(base, e) {
-        return fUtils.exp(this, base, e);
-    }
-
-    toString(a) {
-        return `[ ${this.F.toString(a[0])} , ${this.F.toString(a[1])}, ${this.F.toString(a[2])} ]`;
-    }
-}
-
-module.exports = F3Field;
-
-},{"./futils.js":55}],55:[function(require,module,exports){
-/*
-    Copyright 2018 0kims association.
-
-    This file is part of snarkjs.
-
-    snarkjs is a free software: you can redistribute it and/or
-    modify it under the terms of the GNU General Public License as published by the
-    Free Software Foundation, either version 3 of the License, or (at your option)
-    any later version.
-
-    snarkjs is distributed in the hope that it will be useful,
-    but WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY
-    or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for
-    more details.
-
-    You should have received a copy of the GNU General Public License along with
-    snarkjs. If not, see <https://www.gnu.org/licenses/>.
-*/
-
-const bigInt = require("big-integer");
-const assert = require("assert");
-
-function naf(n) {
-    let E = n;
-    const res = [];
-    while (E.gt(bigInt.zero)) {
-        if (E.isOdd()) {
-            const z = 2 - E.mod(4).toJSNumber();
-            res.push( z );
-            E = E.minus(z);
-        } else {
-            res.push( 0 );
-        }
-        E = E.shiftRight(1);
-    }
-    return res;
-}
-
-
-exports.mulScalar = (F, base, e) => {
-    let res;
-
-    e = bigInt(e);
-    if (e.eq(bigInt.zero)) return F.zero;
-
-    const n = naf(e);
-
-    if (n[n.length-1] == 1) {
-        res = base;
-    } else if (n[n.length-1] == -1) {
-        res = F.neg(base);
-    } else {
-        assert(false);
-    }
-
-    for (let i=n.length-2; i>=0; i--) {
-
-        res = F.double(res);
-
-        if (n[i] == 1) {
-            res = F.add(res, base);
-        } else if (n[i] == -1) {
-            res = F.sub(res, base);
-        }
-    }
-
-    return res;
-};
-
-
-/*
-exports.mulScalar = (F, base, e) =>{
-    let res = F.zero;
-    let rem = bigInt(e);
-    let exp = base;
-
-    while (! rem.eq(bigInt.zero)) {
-        if (rem.and(bigInt.one).eq(bigInt.one)) {
-            res = F.add(res, exp);
-        }
-        exp = F.double(exp);
-        rem = rem.shiftRight(1);
-    }
-
-    return res;
-};
-*/
-
-exports.exp = (F, base, e) =>{
-    let res = F.one;
-    let rem = bigInt(e);
-    let exp = base;
-
-    while (! rem.eq(bigInt.zero)) {
-        if (rem.and(bigInt.one).eq(bigInt.one)) {
-            res = F.mul(res, exp);
-        }
-        exp = F.square(exp);
-        rem = rem.shiftRight(1);
-    }
-
-    return res;
-};
-
-},{"assert":1,"big-integer":47}],56:[function(require,module,exports){
-/*
-    Copyright 2018 0kims association.
-
-    This file is part of snarkjs.
-
-    snarkjs is a free software: you can redistribute it and/or
-    modify it under the terms of the GNU General Public License as published by the
-    Free Software Foundation, either version 3 of the License, or (at your option)
-    any later version.
-
-    snarkjs is distributed in the hope that it will be useful,
-    but WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY
-    or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for
-    more details.
-
-    You should have received a copy of the GNU General Public License along with
-    snarkjs. If not, see <https://www.gnu.org/licenses/>.
-*/
-
-const fUtils = require("./futils.js");
-
-class GCurve {
-
-    constructor(F, g) {
-        this.F = F;
-        this.g = g;
-        if (this.g.length == 2) this.g[2] = this.F.one;
-        this.zero = [this.F.zero, this.F.one, this.F.zero];
-    }
-
-    add(p1, p2) {
-
-        const F = this.F;
-
-        if (this.eq(p1, this.zero)) return p2;
-        if (this.eq(p2, this.zero)) return p1;
-
-        const res = new Array(3);
-
-        const Z1Z1 = F.square( p1[2] );
-        const Z2Z2 = F.square( p2[2] );
-
-        const U1 = F.mul( p1[0] , Z2Z2 );     // U1 = X1  * Z2Z2
-        const U2 = F.mul( p2[0] , Z1Z1 );     // U2 = X2  * Z1Z1
-
-        const Z1_cubed = F.mul( p1[2] , Z1Z1);
-        const Z2_cubed = F.mul( p2[2] , Z2Z2);
-
-        const S1 = F.mul( p1[1] , Z2_cubed);  // S1 = Y1 * Z2 * Z2Z2
-        const S2 = F.mul( p2[1] , Z1_cubed);  // S2 = Y2 * Z1 * Z1Z1
-
-        if (F.eq(U1,U2) && F.eq(S1,S2)) {
-            return this.double(p1);
-        }
-
-        const H = F.sub( U2 , U1 );                    // H = U2-U1
-
-        const S2_minus_S1 = F.sub( S2 , S1 );
-
-        const I = F.square( F.add(H,H) );         // I = (2 * H)^2
-        const J = F.mul( H , I );                      // J = H * I
-
-        const r = F.add( S2_minus_S1 , S2_minus_S1 );  // r = 2 * (S2-S1)
-        const V = F.mul( U1 , I );                     // V = U1 * I
-
-        res[0] =
-            F.sub(
-                F.sub( F.square(r) , J ),
-                F.add( V , V ));                       // X3 = r^2 - J - 2 * V
-
-        const S1_J = F.mul( S1 , J );
-
-        res[1] =
-            F.sub(
-                F.mul( r , F.sub(V,res[0])),
-                F.add( S1_J,S1_J ));                   // Y3 = r * (V-X3)-2 S1 J
-
-        res[2] =
-            F.mul(
-                H,
-                F.sub(
-                    F.square( F.add(p1[2],p2[2]) ),
-                    F.add( Z1Z1 , Z2Z2 )));            // Z3 = ((Z1+Z2)^2-Z1Z1-Z2Z2) * H
-
-        return res;
-    }
-
-    neg(p) {
-        return [p[0], this.F.neg(p[1]), p[2]];
-    }
-
-    sub(a, b) {
-        return this.add(a, this.neg(b));
-    }
-
-    double(p) {
-        const F = this.F;
-
-        const res = new Array(3);
-
-        if (this.eq(p, this.zero)) return p;
-
-        const A = F.square( p[0] );                    // A = X1^2
-        const B = F.square( p[1] );                    // B = Y1^2
-        const C = F.square( B );                       // C = B^2
-
-        let D =
-            F.sub(
-                F.square( F.add(p[0] , B )),
-                F.add( A , C));
-        D = F.add(D,D);                    // D = 2 * ((X1 + B)^2 - A - C)
-
-        const E = F.add( F.add(A,A), A);          // E = 3 * A
-        const FF =F.square( E );                       // F = E^2
-
-        res[0] = F.sub( FF , F.add(D,D) );         // X3 = F - 2 D
-
-        let eightC = F.add( C , C );
-        eightC = F.add( eightC , eightC );
-        eightC = F.add( eightC , eightC );
-
-        res[1] =
-            F.sub(
-                F.mul(
-                    E,
-                    F.sub( D, res[0] )),
-                eightC);                                    // Y3 = E * (D - X3) - 8 * C
-
-        const Y1Z1 = F.mul( p[1] , p[2] );
-        res[2] = F.add( Y1Z1 , Y1Z1 );                 // Z3 = 2 * Y1 * Z1
-
-        return res;
-    }
-
-    mulScalar(base, e) {
-        return fUtils.mulScalar(this, base, e);
-    }
-
-    affine(p) {
-        const F = this.F;
-        if (this.eq(p, this.zero)) {
-            return this.zero;
-        } else {
-            const Z_inv = F.inv(p[2]);
-            const Z2_inv = F.square(Z_inv);
-            const Z3_inv = F.mul(Z2_inv, Z_inv);
-
-            const res = new Array(3);
-            res[0] = F.mul(p[0],Z2_inv);
-            res[1] = F.mul(p[1],Z3_inv);
-            res[2] = F.one;
-
-            return res;
-        }
-    }
-
-    multiAffine(arr) {
-        const keys = Object.keys(arr);
-        const F = this.F;
-        const accMul = new Array(keys.length+1);
-        accMul[0] = F.one;
-        for (let i = 0; i< keys.length; i++) {
-            if (F.eq(arr[keys[i]][2], F.zero)) {
-                accMul[i+1] = accMul[i];
-            } else {
-                accMul[i+1] = F.mul(accMul[i], arr[keys[i]][2]);
-            }
-        }
-
-        accMul[keys.length] = F.inv(accMul[keys.length]);
-
-        for (let i = keys.length-1; i>=0; i--) {
-            if (F.eq(arr[keys[i]][2], F.zero)) {
-                accMul[i] = accMul[i+1];
-                arr[keys[i]] = this.zero;
-            } else {
-                const Z_inv = F.mul(accMul[i], accMul[i+1]);
-                accMul[i] = F.mul(arr[keys[i]][2], accMul[i+1]);
-
-                const Z2_inv = F.square(Z_inv);
-                const Z3_inv = F.mul(Z2_inv, Z_inv);
-
-                arr[keys[i]][0] = F.mul(arr[keys[i]][0],Z2_inv);
-                arr[keys[i]][1] = F.mul(arr[keys[i]][1],Z3_inv);
-                arr[keys[i]][2] = F.one;
-            }
-        }
-
-    }
-
-    eq(p1, p2) {
-        const F = this.F;
-
-        if (this.F.eq(p1[2], this.F.zero)) return this.F.eq(p2[2], this.F.zero);
-        if (this.F.eq(p2[2], this.F.zero)) return false;
-
-        const Z1Z1 = F.square( p1[2] );
-        const Z2Z2 = F.square( p2[2] );
-
-        const U1 = F.mul( p1[0] , Z2Z2 );
-        const U2 = F.mul( p2[0] , Z1Z1 );
-
-        const Z1_cubed = F.mul( p1[2] , Z1Z1);
-        const Z2_cubed = F.mul( p2[2] , Z2Z2);
-
-        const S1 = F.mul( p1[1] , Z2_cubed);
-        const S2 = F.mul( p2[1] , Z1_cubed);
-
-        return (F.eq(U1,U2) && F.eq(S1,S2));
-    }
-
-    toString(p) {
-        const cp = this.affine(p);
-        return `[ ${this.F.toString(cp[0])} , ${this.F.toString(cp[1])} ]`;
-    }
-
-}
-
-module.exports = GCurve;
-
-
-},{"./futils.js":55}],57:[function(require,module,exports){
-/*
-    Copyright 2018 0kims association.
-
-    This file is part of snarkjs.
-
-    snarkjs is a free software: you can redistribute it and/or
-    modify it under the terms of the GNU General Public License as published by the
-    Free Software Foundation, either version 3 of the License, or (at your option)
-    any later version.
-
-    snarkjs is distributed in the hope that it will be useful,
-    but WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY
-    or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for
-    more details.
-
-    You should have received a copy of the GNU General Public License along with
-    snarkjs. If not, see <https://www.gnu.org/licenses/>.
-*/
-
-/*
-    This library does operations on polynomials with coefficients in a field F.
-
-    A polynomial P(x) = p0 + p1 * x + p2 * x^2 + ... + pn * x^n  is represented
-    by the array [ p0, p1, p2, ... , pn ].
- */
-
-const bigInt = require("big-integer");
-
-class PolField {
-    constructor (F) {
-        this.F = F;
-
-        const q = this.F.p;
-        let rem = q.minus(bigInt(1));
-        let s = 0;
-        while (!rem.isOdd()) {
-            s ++;
-            rem = rem.shiftRight(1);
-        }
-
-        const five = this.F.add(this.F.add(this.F.two, this.F.two), this.F.one);
-
-        this.w = new Array(s+1);
-        this.wi = new Array(s+1);
-        this.w[s] = this.F.pow(five, rem);
-        this.wi[s] = this.F.inv(this.w[s]);
-
-        let n=s-1;
-        while (n>=0) {
-            this.w[n] = this.F.square(this.w[n+1]);
-            this.wi[n] = this.F.square(this.wi[n+1]);
-            n--;
-        }
-
-
-        this.roots = [];
-/*        for (let i=0; i<16; i++) {
-            let r = this.F.one;
-            n = 1 << i;
-            const rootsi = new Array(n);
-            for (let j=0; j<n; j++) {
-                rootsi[j] = r;
-                r = this.F.mul(r, this.w[i]);
-            }
-
-            this.roots.push(rootsi);
-        }
-    */
-        this._setRoots(15);
-    }
-
-    _setRoots(n) {
-        for (let i=n; (i>=0) && (!this.roots[i]); i--) {
-            let r = this.F.one;
-            const nroots = 1 << i;
-            const rootsi = new Array(nroots);
-            for (let j=0; j<nroots; j++) {
-                rootsi[j] = r;
-                r = this.F.mul(r, this.w[i]);
-            }
-
-            this.roots[i] = rootsi;
-        }
-    }
-
-    add(a, b) {
-        const m = Math.max(a.length, b.length);
-        const res = new Array(m);
-        for (let i=0; i<m; i++) {
-            res[i] = this.F.add(a[i] || this.F.zero, b[i] || this.F.zero);
-        }
-        return this.reduce(res);
-    }
-
-    double(a) {
-        return this.add(a,a);
-    }
-
-    sub(a, b) {
-        const m = Math.max(a.length, b.length);
-        const res = new Array(m);
-        for (let i=0; i<m; i++) {
-            res[i] = this.F.sub(a[i] || this.F.zero, b[i] || this.F.zero);
-        }
-        return this.reduce(res);
-    }
-
-    mulScalar(p, b) {
-        if (this.F.eq(b, this.F.zero)) return [];
-        if (this.F.eq(b, this.F.one)) return p;
-        const res = new Array(p.length);
-        for (let i=0; i<p.length; i++) {
-            res[i] = this.F.mul(p[i], b);
-        }
-        return res;
-    }
-
-
-
-    mul(a, b) {
-        if (a.length == 0) return [];
-        if (b.length == 0) return [];
-        if (a.length == 1) return this.mulScalar(b, a[0]);
-        if (b.length == 1) return this.mulScalar(a, b[0]);
-
-        if (b.length > a.length) {
-            [b, a] = [a, b];
-        }
-
-        if ((b.length <= 2) || (b.length < log2(a.length))) {
-            return this.mulNormal(a,b);
-        } else {
-            return this.mulFFT(a,b);
-        }
-    }
-
-    mulNormal(a, b) {
-        let res = [];
-        for (let i=0; i<b.length; i++) {
-            res = this.add(res, this.scaleX(this.mulScalar(a, b[i]), i) );
-        }
-        return res;
-    }
-
-    mulFFT(a,b) {
-        const longestN = Math.max(a.length, b.length);
-        const bitsResult = log2(longestN-1)+2;
-        this._setRoots(bitsResult);
-
-        const m = 1 << bitsResult;
-        const ea = this.extend(a,m);
-        const eb = this.extend(b,m);
-
-        const ta = __fft(this, ea, bitsResult, 0, 1, false);
-        const tb = __fft(this, eb, bitsResult, 0, 1, false);
-
-        const tres = new Array(m);
-
-        for (let i=0; i<m; i++) {
-            tres[i] = this.F.mul(ta[i], tb[i]);
-        }
-
-        const res = __fft(this, tres, bitsResult, 0, 1, true);
-
-        const twoinvm = this.F.inv( this.F.mulScalar(this.F.one, m) );
-        const resn = new Array(m);
-        for (let i=0; i<m; i++) {
-            resn[i] = this.F.mul(res[(m-i)%m], twoinvm);
-        }
-
-        return this.reduce(resn);
-    }
-
-
-
-    square(a) {
-        return this.mul(a,a);
-    }
-
-    scaleX(p, n) {
-        if (n==0) {
-            return p;
-        } else if (n>0) {
-            const z = new Array(n).fill(this.F.zero);
-            return z.concat(p);
-        } else {
-            if (-n >= p.length) return [];
-            return p.slice(-n);
-        }
-    }
-
-    eval2(p, x) {
-        let v = this.F.zero;
-        let ix = this.F.one;
-        for (let i=0; i<p.length; i++) {
-            v = this.F.add(v, this.F.mul(p[i], ix));
-            ix = this.F.mul(ix, x);
-        }
-        return v;
-    }
-
-    eval(p,x) {
-        const F = this.F;
-        if (p.length == 0) return F.zero;
-        const m = this._next2Power(p.length);
-        const ep = this.extend(p, m);
-
-        return _eval(ep, x, 0, 1, m);
-
-        function _eval(p, x, offset, step, n) {
-            if (n==1) return p[offset];
-            const newX = F.square(x);
-            const res= F.add(
-                _eval(p, newX, offset, step << 1, n >> 1),
-                F.mul(
-                    x,
-                    _eval(p, newX, offset+step , step << 1, n >> 1)));
-            return res;
-        }
-    }
-
-    lagrange(points) {
-        let roots = [this.F.one];
-        for (let i=0; i<points.length; i++) {
-            roots = this.mul(roots, [this.F.neg(points[i][0]), this.F.one]);
-        }
-
-        let sum = [];
-        for (let i=0; i<points.length; i++) {
-            let mpol = this.ruffini(roots, points[i][0]);
-            const factor =
-                this.F.mul(
-                    this.F.inv(this.eval(mpol, points[i][0])),
-                    points[i][1]);
-            mpol = this.mulScalar(mpol, factor);
-            sum = this.add(sum, mpol);
-        }
-        return sum;
-    }
-
-
-    fft(p) {
-        if (p.length <= 1) return p;
-        const bits = log2(p.length-1)+1;
-        this._setRoots(bits);
-
-        const m = 1 << bits;
-        const ep = this.extend(p, m);
-        const res = __fft(this, ep, bits, 0, 1);
-        return res;
-    }
-
-    ifft(p) {
-
-        if (p.length <= 1) return p;
-        const bits = log2(p.length-1)+1;
-        this._setRoots(bits);
-        const m = 1 << bits;
-        const ep = this.extend(p, m);
-        const res =  __fft(this, ep, bits, 0, 1);
-
-        const twoinvm = this.F.inv( this.F.mulScalar(this.F.one, m) );
-        const resn = new Array(m);
-        for (let i=0; i<m; i++) {
-            resn[i] = this.F.mul(res[(m-i)%m], twoinvm);
-        }
-
-        return resn;
-
-    }
-
-
-    _fft(pall, bits, offset, step) {
-
-        const n = 1 << bits;
-        if (n==1) {
-            return [ pall[offset] ];
-        }
-
-        const ndiv2 = n >> 1;
-        const p1 = this._fft(pall, bits-1, offset, step*2);
-        const p2 = this._fft(pall, bits-1, offset+step, step*2);
-
-        const out = new Array(n);
-
-        let m= this.F.one;
-        for (let i=0; i<ndiv2; i++) {
-            out[i] = this.F.add(p1[i], this.F.mul(m, p2[i]));
-            out[i+ndiv2] = this.F.sub(p1[i], this.F.mul(m, p2[i]));
-            m = this.F.mul(m, this.w[bits]);
-        }
-
-        return out;
-    }
-
-    extend(p, e) {
-        if (e == p.length) return p;
-        const z = new Array(e-p.length).fill(this.F.zero);
-
-        return p.concat(z);
-    }
-
-    reduce(p) {
-        if (p.length == 0) return p;
-        if (! this.F.eq(p[p.length-1], this.F.zero) ) return p;
-        let i=p.length-1;
-        while( i>0 && this.F.eq(p[i], this.F.zero) ) i--;
-        return p.slice(0, i+1);
-    }
-
-    eq(a, b) {
-        const pa = this.reduce(a);
-        const pb = this.reduce(b);
-
-        if (pa.length != pb.length) return false;
-        for (let i=0; i<pb.length; i++) {
-            if (!this.F.eq(pa[i], pb[i])) return false;
-        }
-
-        return true;
-    }
-
-    ruffini(p, r) {
-        const res = new Array(p.length-1);
-        res[res.length-1] = p[p.length-1];
-        for (let i = res.length-2; i>=0; i--) {
-            res[i] = this.F.add(this.F.mul(res[i+1], r), p[i+1]);
-        }
-        return res;
-    }
-
-    _next2Power(v) {
-        v--;
-        v |= v >> 1;
-        v |= v >> 2;
-        v |= v >> 4;
-        v |= v >> 8;
-        v |= v >> 16;
-        v++;
-        return v;
-    }
-
-    toString(p) {
-        const ap = this.normalize(p);
-        let S = "";
-        for (let i=ap.length-1; i>=0; i--) {
-            if (!this.F.eq(p[i], this.F.zero)) {
-                if (S!="") S += " + ";
-                S = S + p[i].toString(10);
-                if (i>0) {
-                    S = S + "x";
-                    if (i>1) {
-                        S = S + "^" +i;
-                    }
-                }
-            }
-        }
-        return S;
-    }
-
-    normalize(p) {
-        const res  = new Array(p.length);
-        for (let i=0; i<p.length; i++) {
-            res[i] = this.F.normalize(p[i]);
-        }
-        return res;
-    }
-
-
-    _reciprocal(p, bits) {
-        const k = 1 << bits;
-        if (k==1) {
-            return [ this.F.inv(p[0]) ];
-        }
-        const np = this.scaleX(p, -k/2);
-        const q = this._reciprocal(np, bits-1);
-        const a = this.scaleX(this.double(q), 3*k/2-2);
-        const b = this.mul( this.square(q), p);
-
-        return this.scaleX(this.sub(a,b),   -(k-2));
-    }
-
-    // divides x^m / v
-    _div2(m, v) {
-        const kbits = log2(v.length-1)+1;
-        const k = 1 << kbits;
-
-        const scaleV = k - v.length;
-
-        // rec = x^(k - 2) / v* x^scaleV =>
-        // rec = x^(k-2-scaleV)/ v
-        //
-        // res = x^m/v = x^(m + (2*k-2 - scaleV) - (2*k-2 - scaleV)) /v =>
-        // res = rec * x^(m - (2*k-2 - scaleV)) =>
-        // res = rec * x^(m - 2*k + 2 + scaleV)
-
-        const rec = this._reciprocal(this.scaleX(v, scaleV), kbits);
-        const res = this.scaleX(rec, m - 2*k + 2 + scaleV);
-
-        return res;
-    }
-
-    div(_u, _v) {
-        if (_u.length < _v.length) return [];
-        const kbits = log2(_v.length-1)+1;
-        const k = 1 << kbits;
-
-        const u = this.scaleX(_u, k-_v.length);
-        const v = this.scaleX(_v, k-_v.length);
-
-        const n = v.length-1;
-        let m = u.length-1;
-
-        const s = this._reciprocal(v, kbits);
-        let t;
-        if (m>2*n) {
-            t = this.sub(this.scaleX([this.F.one], 2*n), this.mul(s, v));
-        }
-
-        let q = [];
-        let rem = u;
-        let us, ut;
-        let finish = false;
-
-        while (!finish) {
-            us = this.mul(rem, s);
-            q = this.add(q, this.scaleX(us, -2*n));
-
-            if ( m > 2*n ) {
-                ut = this.mul(rem, t);
-                rem = this.scaleX(ut, -2*n);
-                m = rem.length-1;
-            } else {
-                finish = true;
-            }
-        }
-
-        return q;
-    }
-
-
-    // returns the ith nth-root of one
-    oneRoot(n, i) {
-        let nbits = log2(n-1)+1;
-        let res = this.F.one;
-        let r = i;
-
-        if(i>=n) {
-            throw new Error("Given 'i' should be lower than 'n'");
-        }
-        else if (1<<nbits !== n) {
-            throw new Error(`Internal errlr: ${n} should equal ${1<<nbits}`);
-        }
-
-        while (r>0) {
-            if (r & 1 == 1) {
-                res = this.F.mul(res, this.w[nbits]);
-            }
-            r = r >> 1;
-            nbits --;
-        }
-        return res;
-    }
-
-    computeVanishingPolinomial(bits, t) {
-        const m = 1 << bits;
-        return this.F.sub(this.F.pow(t, bigInt(m)), this.F.one);
-    }
-
-    evaluateLagrangePolynomials(bits, t) {
-        const m= 1 << bits;
-        const tm = this.F.pow(t, bigInt(m));
-        const u= new Array(m).fill(this.F.zero);
-        this._setRoots(bits);
-        const omega = this.w[bits];
-
-        if (this.F.eq(tm, this.F.one)) {
-            for (let i = 0; i < m; i++) {
-                if (this.F.eq(this.roots[bits][0],t)) { // i.e., t equals omega^i
-                    u[i] = this.F.one;
-                    return u;
-                }
-            }
-        }
-
-        const z = this.F.sub(tm, this.F.one);
-//        let l = this.F.mul(z,  this.F.pow(this.F.twoinv, m));
-        let l = this.F.mul(z,  this.F.inv(bigInt(m)));
-        for (let i = 0; i < m; i++) {
-            u[i] = this.F.mul(l, this.F.inv(this.F.sub(t,this.roots[bits][i])));
-            l = this.F.mul(l, omega);
-        }
-
-        return u;
-    }
-
-    log2(V) {
-        return log2(V);
-    }
-}
-
-function log2( V )
-{
-    return( ( ( V & 0xFFFF0000 ) !== 0 ? ( V &= 0xFFFF0000, 16 ) : 0 ) | ( ( V & 0xFF00FF00 ) !== 0 ? ( V &= 0xFF00FF00, 8 ) : 0 ) | ( ( V & 0xF0F0F0F0 ) !== 0 ? ( V &= 0xF0F0F0F0, 4 ) : 0 ) | ( ( V & 0xCCCCCCCC ) !== 0 ? ( V &= 0xCCCCCCCC, 2 ) : 0 ) | ( ( V & 0xAAAAAAAA ) !== 0 ) );
-}
-
-
-function __fft(PF, pall, bits, offset, step) {
-
-    const n = 1 << bits;
-    if (n==1) {
-        return [ pall[offset] ];
-    } else if (n==2) {
-        return [
-            PF.F.add(pall[offset], pall[offset + step]),
-            PF.F.sub(pall[offset], pall[offset + step])];
-    }
-
-    const ndiv2 = n >> 1;
-    const p1 = __fft(PF, pall, bits-1, offset, step*2);
-    const p2 = __fft(PF, pall, bits-1, offset+step, step*2);
-
-    const out = new Array(n);
-
-    for (let i=0; i<ndiv2; i++) {
-        out[i] = PF.F.add(p1[i], PF.F.mul(PF.roots[bits][i], p2[i]));
-        out[i+ndiv2] = PF.F.sub(p1[i], PF.F.mul(PF.roots[bits][i], p2[i]));
-    }
-
-    return out;
-}
-
-
-module.exports = PolField;
-
-},{"big-integer":47}],58:[function(require,module,exports){
-const bigInt = require("big-integer");
-const assert = require("assert");
-
-function getRandomByte() {
-    if (typeof window !== "undefined") { // Browser
-        if (typeof window.crypto !== "undefined") { // Supported
-            let array = new Uint8Array(1);
-            window.crypto.getRandomValues(array);
-            return array[0];
-        }
-        else { // fallback
-            return Math.floor(Math.random() * 256);
-        }
-    }
-    else { // NodeJS
-        return module.require("crypto").randomBytes(1)[0];
-    }
-}
-
-module.exports = class ZqField {
-    constructor(p) {
-        this.one = bigInt.one;
-        this.zero = bigInt.zero;
-        this.p = p;
-        this.minusone = p.minus(bigInt.one);
-        this.two = bigInt(2);
-        this.half = p.shiftRight(1);
-        this.bitLength = p.bitLength();
-        this.mask = bigInt.one.shiftLeft(this.bitLength).minus(bigInt.one);
-
-        const e = this.minusone.shiftRight(this.one);
-        this.nqr = this.two;
-        let r = this.pow(this.nqr, e);
-        while (!r.equals(this.minusone)) {
-            this.nqr = this.nqr.add(this.one);
-            r = this.pow(this.nqr, e);
-        }
-
-        this.s = this.zero;
-        this.t = this.minusone;
-
-        while (!this.t.isOdd()) {
-            this.s = this.s.add(this.one);
-            this.t = this.t.shiftRight(this.one);
-        }
-
-        this.nqr_to_t = this.pow(this.nqr, this.t);
-    }
-
-    add(a, b) {
-        let res = a.add(b);
-        if (res.geq(this.p)) {
-            res = res.minus(this.p);
-        }
-        return res;
-    }
-
-    sub(a, b) {
-        if (a.geq(b)) {
-            return a.minus(b);
-        } else {
-            return this.p.minus(b.minus(a));
-        }
-    }
-
-    neg(a) {
-        if (a.isZero()) return a;
-        return this.p.minus(a);
-    }
-
-    mul(a, b) {
-        return a.times(b).mod(this.p);
-    }
-
-    mulScalar(base, s) {
-        return base.times(s).mod(this.p);
-    }
-
-    square(a) {
-        return a.square().mod(this.p);
-    }
-
-    eq(a, b) {
-        return a.eq(b);
-    }
-
-    neq(a, b) {
-        return a.neq(b);
-    }
-
-    lt(a, b) {
-        const aa = a.gt(this.half) ? a.minus(this.p) : a;
-        const bb = b.gt(this.half) ? b.minus(this.p) : b;
-        return aa.lt(bb);
-    }
-
-    gt(a, b) {
-        const aa = a.gt(this.half) ? a.minus(this.p) : a;
-        const bb = b.gt(this.half) ? b.minus(this.p) : b;
-        return aa.gt(bb);
-    }
-
-    leq(a, b) {
-        const aa = a.gt(this.half) ? a.minus(this.p) : a;
-        const bb = b.gt(this.half) ? b.minus(this.p) : b;
-        return aa.leq(bb);
-    }
-
-    geq(a, b) {
-        const aa = a.gt(this.half) ? a.minus(this.p) : a;
-        const bb = b.gt(this.half) ? b.minus(this.p) : b;
-        return aa.geq(bb);
-    }
-
-    div(a, b) {
-        assert(!b.isZero(), "Division by zero");
-        return a.times(b.modInv(this.p)).mod(this.p);
-    }
-
-    idiv(a, b) {
-        assert(!b.isZero(), "Division by zero");
-        return a.divide(b);
-    }
-
-    inv(a) {
-        assert(!a.isZero(), "Division by zero");
-        return a.modInv(this.p);
-    }
-
-    mod(a, b) {
-        return a.mod(b);
-    }
-
-    pow(a, b) {
-        return a.modPow(b, this.p);
-    }
-
-    band(a, b) {
-        return a.and(b).and(this.mask).mod(this.p);
-    }
-
-    bor(a, b) {
-        return a.or(b).and(this.mask).mod(this.p);
-    }
-
-    bxor(a, b) {
-        return a.xor(b).and(this.mask).mod(this.p);
-    }
-
-    bnot(a) {
-        return a.xor(this.mask).mod(this.p);
-    }
-
-    shl(a, b) {
-        if (b.lt(this.bitLength)) {
-            return a.shiftLeft(b).and(this.mask).mod(this.p);
-        } else {
-            const nb = this.p.minus(b);
-            if (nb.lt(this.bitLength)) {
-                return this.shr(a, nb);
-            } else {
-                return bigInt.zero;
-            }
-        }
-    }
-
-    shr(a, b) {
-        if (b.lt(this.bitLength)) {
-            return a.shiftRight(b);
-        } else {
-            const nb = this.p.minus(b);
-            if (nb.lt(this.bitLength)) {
-                return this.shl(a, nb);
-            } else {
-                return bigInt.zero;
-            }
-        }
-    }
-
-    land(a, b) {
-        return (a.isZero() || b.isZero()) ? bigInt.zero : bigInt.one;
-    }
-
-    lor(a, b) {
-        return (a.isZero() && b.isZero()) ? bigInt.zero : bigInt.one;
-    }
-
-    lnot(a) {
-        return a.isZero() ? bigInt.one : bigInt.zero;
-    }
-
-    sqrt(n) {
-
-        if (n.equals(this.zero)) return this.zero;
-
-        // Test that have solution
-        const res = this.pow(n, this.minusone.shiftRight(this.one));
-        if (!res.equals(this.one)) return null;
-
-        let m = parseInt(this.s);
-        let c = this.nqr_to_t;
-        let t = this.pow(n, this.t);
-        let r = this.pow(n, this.add(this.t, this.one).shiftRight(this.one) );
-
-        while (!t.equals(this.one)) {
-            let sq = this.square(t);
-            let i = 1;
-            while (!sq.equals(this.one)) {
-                i++;
-                sq = this.square(sq);
-            }
-
-            // b = c ^ m-i-1
-            let b = c;
-            for (let j=0; j< m-i-1; j ++) b = this.square(b);
-
-            m = i;
-            c = this.square(b);
-            t = this.mul(t, c);
-            r = this.mul(r, b);
-        }
-
-        if (r.greater(this.p.shiftRight(this.one))) {
-            r = this.neg(r);
-        }
-
-        return r;
-    }
-
-    normalize(a) {
-        a = bigInt(a);
-        if (a.isNegative()) {
-            return this.p.minus(a.abs().mod(this.p));
-        } else {
-            return a.mod(this.p);
-        }
-    }
-
-    random() {
-        let res = bigInt(0);
-        let n = bigInt(this.p.square());
-        while (!n.isZero()) {
-            res = res.shiftLeft(8).add(bigInt(getRandomByte()));
-            n = n.shiftRight(8);
-        }
-        return res.mod(this.p);
-    }
-
-    toString(a, base) {
-        return a.toString(base);
-    }
-
-};
-
-
-},{"assert":1,"big-integer":47}],59:[function(require,module,exports){
+},{"./utils":37,"big-integer":35}],39:[function(require,module,exports){
 /**
  * FNV-1a Hash implementation (32, 64, 128, 256, 512, and 1024 bit)
  * @author Travis Webb <me@traviswebb.com>
@@ -14143,10 +10626,10 @@ var fnvplus = (function(){
 
 if (typeof module != "undefined" && typeof module.exports != "undefined") module.exports = fnvplus;
 
-},{}],60:[function(require,module,exports){
+},{}],40:[function(require,module,exports){
 module.exports = require('./lib/api')(require('./lib/keccak'))
 
-},{"./lib/api":61,"./lib/keccak":65}],61:[function(require,module,exports){
+},{"./lib/api":41,"./lib/keccak":45}],41:[function(require,module,exports){
 const createKeccak = require('./keccak')
 const createShake = require('./shake')
 
@@ -14175,7 +10658,7 @@ module.exports = function (KeccakState) {
   }
 }
 
-},{"./keccak":62,"./shake":63}],62:[function(require,module,exports){
+},{"./keccak":42,"./shake":43}],42:[function(require,module,exports){
 (function (Buffer){
 const { Transform } = require('stream')
 
@@ -14256,7 +10739,7 @@ module.exports = (KeccakState) => class Keccak extends Transform {
 }
 
 }).call(this,require("buffer").Buffer)
-},{"buffer":7,"stream":32}],63:[function(require,module,exports){
+},{"buffer":7,"stream":32}],43:[function(require,module,exports){
 (function (Buffer){
 const { Transform } = require('stream')
 
@@ -14328,7 +10811,7 @@ module.exports = (KeccakState) => class Shake extends Transform {
 }
 
 }).call(this,require("buffer").Buffer)
-},{"buffer":7,"stream":32}],64:[function(require,module,exports){
+},{"buffer":7,"stream":32}],44:[function(require,module,exports){
 const P1600_ROUND_CONSTANTS = [1, 0, 32898, 0, 32906, 2147483648, 2147516416, 2147483648, 32907, 0, 2147483649, 0, 2147516545, 2147483648, 32777, 2147483648, 138, 0, 136, 0, 2147516425, 0, 2147483658, 0, 2147516555, 0, 139, 2147483648, 32905, 2147483648, 32771, 2147483648, 32770, 2147483648, 128, 2147483648, 32778, 0, 2147483658, 2147483648, 2147516545, 2147483648, 32896, 2147483648, 2147483649, 0, 2147516424, 2147483648]
 
 exports.p1600 = function (s) {
@@ -14516,7 +10999,7 @@ exports.p1600 = function (s) {
   }
 }
 
-},{}],65:[function(require,module,exports){
+},{}],45:[function(require,module,exports){
 (function (Buffer){
 const keccakState = require('./keccak-state-unroll')
 
@@ -14588,4 +11071,3557 @@ Keccak.prototype.copy = function (dest) {
 module.exports = Keccak
 
 }).call(this,require("buffer").Buffer)
-},{"./keccak-state-unroll":64,"buffer":7}]},{},[46]);
+},{"./keccak-state-unroll":44,"buffer":7}],46:[function(require,module,exports){
+/*
+    Copyright 2018 0kims association.
+
+    This file is part of snarkjs.
+
+    snarkjs is a free software: you can redistribute it and/or
+    modify it under the terms of the GNU General Public License as published by the
+    Free Software Foundation, either version 3 of the License, or (at your option)
+    any later version.
+
+    snarkjs is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY
+    or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for
+    more details.
+
+    You should have received a copy of the GNU General Public License along with
+    snarkjs. If not, see <https://www.gnu.org/licenses/>.
+*/
+
+exports.original = {
+    setup: require("./src/setup_original.js"),
+    genProof: require("./src/prover_original.js"),
+    isValid: require("./src/verifier_original.js")
+};
+exports.groth = {
+    setup: require("./src/setup_groth.js"),
+    genProof: require("./src/prover_groth.js"),
+    isValid: require("./src/verifier_groth.js")
+};
+exports.kimleeoh = {
+    setup: require("./src/setup_kimleeoh.js"),
+    genProof: require("./src/prover_kimleeoh.js"),
+    isValid: require("./src/verifier_kimleeoh.js")
+};
+
+exports.stringifyBigInts = require("./src/utils.js").stringifyBigInts;
+exports.unstringifyBigInts = require("./src/utils.js").unstringifyBigInts;
+
+
+},{"./src/prover_groth.js":56,"./src/prover_kimleeoh.js":57,"./src/prover_original.js":58,"./src/setup_groth.js":59,"./src/setup_kimleeoh.js":60,"./src/setup_original.js":61,"./src/utils.js":62,"./src/verifier_groth.js":63,"./src/verifier_kimleeoh.js":64,"./src/verifier_original.js":65}],47:[function(require,module,exports){
+exports.ZqField = require("./src/zqfield.js");
+const Bn128 = require("./src/bn128.js");
+exports.Bn128 = Bn128;
+exports.bn128 = new Bn128();
+exports.PolField = require("./src/polfield.js");
+exports.F2Field = require("./src/f2field");
+exports.F3Field = require("./src/f3field");
+
+
+},{"./src/bn128.js":49,"./src/f2field":50,"./src/f3field":51,"./src/polfield.js":54,"./src/zqfield.js":55}],48:[function(require,module,exports){
+arguments[4][35][0].apply(exports,arguments)
+},{"dup":35}],49:[function(require,module,exports){
+/*
+    Copyright 2018 0kims association.
+
+    This file is part of snarkjs.
+
+    snarkjs is a free software: you can redistribute it and/or
+    modify it under the terms of the GNU General Public License as published by the
+    Free Software Foundation, either version 3 of the License, or (at your option)
+    any later version.
+
+    snarkjs is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY
+    or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for
+    more details.
+
+    You should have received a copy of the GNU General Public License along with
+    snarkjs. If not, see <https://www.gnu.org/licenses/>.
+*/
+
+const bigInt = require("big-integer");
+
+const F1Field = require("./zqfield");
+const F2Field = require("./f2field.js");
+const F3Field = require("./f3field.js");
+const GCurve = require("./gcurve.js");
+
+class BN128 {
+
+    constructor() {
+
+        this.q = bigInt("21888242871839275222246405745257275088696311157297823662689037894645226208583");
+        this.r = bigInt("21888242871839275222246405745257275088548364400416034343698204186575808495617");
+        this.g1 = [ bigInt(1), bigInt(2), bigInt(1)];
+        this.g2 = [
+            [
+                bigInt("10857046999023057135944570762232829481370756359578518086990519993285655852781"),
+                bigInt("11559732032986387107991004021392285783925812861821192530917403151452391805634")
+            ],
+            [
+                bigInt("8495653923123431417604973247489272438418190587263600148770280649306958101930"),
+                bigInt("4082367875863433681332203403145435568316851327593401208105741076214120093531")
+            ],
+            [
+                bigInt("1"),
+                bigInt("0")
+            ]
+        ];
+
+        this.nonResidueF2 = bigInt("21888242871839275222246405745257275088696311157297823662689037894645226208582");
+        this.nonResidueF6 = [ bigInt("9"), bigInt("1") ];
+
+        this.F1 = new F1Field(this.q);
+        this.F2 = new F2Field(this.F1, this.nonResidueF2);
+        this.G1 = new GCurve(this.F1, this.g1);
+        this.G2 = new GCurve(this.F2, this.g2);
+        this.F6 = new F3Field(this.F2, this.nonResidueF6);
+        this.F12 = new F2Field(this.F6, this.nonResidueF6);
+        this.Fr = new F1Field(this.r);
+        const self = this;
+        this.F12._mulByNonResidue = function(a) {
+            return [self.F2.mul(this.nonResidue, a[2]), a[0], a[1]];
+        };
+
+        this._preparePairing();
+
+    }
+
+    _preparePairing() {
+        this.loopCount = bigInt("29793968203157093288");// CONSTANT
+
+        // Set loopCountNeg
+        if (this.loopCount.isNegative()) {
+            this.loopCount = this.loopCount.neg();
+            this.loopCountNeg = true;
+        } else {
+            this.loopCountNeg = false;
+        }
+
+        // Set loop_count_bits
+        let lc = this.loopCount;
+        this.loop_count_bits = []; // Constant
+        while (!lc.isZero()) {
+            this.loop_count_bits.push( lc.isOdd() );
+            lc = lc.shiftRight(1);
+        }
+
+        this.two_inv = this.F1.inv(bigInt(2));
+
+        this.coef_b = bigInt(3);
+        this.twist = [bigInt(9) , bigInt(1)];
+        this.twist_coeff_b = this.F2.mulScalar(  this.F2.inv(this.twist), this.coef_b  );
+
+        this.frobenius_coeffs_c1_1 = bigInt("21888242871839275222246405745257275088696311157297823662689037894645226208582");
+        this.twist_mul_by_q_X =
+            [
+                bigInt("21575463638280843010398324269430826099269044274347216827212613867836435027261"),
+                bigInt("10307601595873709700152284273816112264069230130616436755625194854815875713954")
+            ];
+        this.twist_mul_by_q_Y =
+            [
+                bigInt("2821565182194536844548159561693502659359617185244120367078079554186484126554"),
+                bigInt("3505843767911556378687030309984248845540243509899259641013678093033130930403")
+            ];
+
+        this.final_exponent = bigInt("552484233613224096312617126783173147097382103762957654188882734314196910839907541213974502761540629817009608548654680343627701153829446747810907373256841551006201639677726139946029199968412598804882391702273019083653272047566316584365559776493027495458238373902875937659943504873220554161550525926302303331747463515644711876653177129578303191095900909191624817826566688241804408081892785725967931714097716709526092261278071952560171111444072049229123565057483750161460024353346284167282452756217662335528813519139808291170539072125381230815729071544861602750936964829313608137325426383735122175229541155376346436093930287402089517426973178917569713384748081827255472576937471496195752727188261435633271238710131736096299798168852925540549342330775279877006784354801422249722573783561685179618816480037695005515426162362431072245638324744480");
+
+    }
+
+
+    pairing(p1, p2) {
+
+        const pre1 = this.precomputeG1(p1);
+        const pre2 = this.precomputeG2(p2);
+
+        const r1 = this.millerLoop(pre1, pre2);
+
+        const res = this.finalExponentiation(r1);
+
+        return res;
+    }
+
+
+    precomputeG1(p) {
+        const Pcopy = this.G1.affine(p);
+
+        const res = {};
+        res.PX = Pcopy[0];
+        res.PY = Pcopy[1];
+
+        return res;
+    }
+
+    precomputeG2(p) {
+
+        const Qcopy = this.G2.affine(p);
+
+        const res = {
+            QX: Qcopy[0],
+            QY: Qcopy[1],
+            coeffs: []
+        };
+
+        const R = {
+            X: Qcopy[0],
+            Y: Qcopy[1],
+            Z: this.F2.one
+        };
+
+        let c;
+
+        for (let i = this.loop_count_bits.length-2; i >= 0; --i)
+        {
+            const bit = this.loop_count_bits[i];
+
+            c = this._doubleStep(R);
+            res.coeffs.push(c);
+
+            if (bit)
+            {
+                c = this._addStep(Qcopy, R);
+                res.coeffs.push(c);
+            }
+        }
+
+        const Q1 = this.G2.affine(this._g2MulByQ(Qcopy));
+        if (!this.F2.eq(Q1[2], this.F2.one))
+        {
+            throw new Error("Expected values are not equal");
+        }
+        const Q2 = this.G2.affine(this._g2MulByQ(Q1));
+        if (!this.F2.eq(Q2[2], this.F2.one))
+        {
+            throw new Error("Expected values are not equal");
+        }
+
+        if (this.loopCountNeg)
+        {
+            R.Y = this.F2.neg(R.Y);
+        }
+        Q2[1] = this.F2.neg(Q2[1]);
+
+        c = this._addStep(Q1, R);
+        res.coeffs.push(c);
+
+        c = this._addStep(Q2, R);
+        res.coeffs.push(c);
+
+        return res;
+    }
+
+    millerLoop(pre1, pre2) {
+        let f = this.F12.one;
+
+        let idx = 0;
+
+        let c;
+
+        for (let i = this.loop_count_bits.length-2; i >= 0; --i)
+        {
+            const bit = this.loop_count_bits[i];
+
+            /* code below gets executed for all bits (EXCEPT the MSB itself) of
+               alt_bn128_param_p (skipping leading zeros) in MSB to LSB
+               order */
+
+            c = pre2.coeffs[idx++];
+            f = this.F12.square(f);
+            f = this._mul_by_024(
+                f,
+                c.ell_0,
+                this.F2.mulScalar(c.ell_VW , pre1.PY),
+                this.F2.mulScalar(c.ell_VV , pre1.PX));
+
+            if (bit)
+            {
+                c = pre2.coeffs[idx++];
+                f = this._mul_by_024(
+                    f,
+                    c.ell_0,
+                    this.F2.mulScalar(c.ell_VW, pre1.PY),
+                    this.F2.mulScalar(c.ell_VV, pre1.PX));
+            }
+
+        }
+
+        if (this.loopCountNeg)
+        {
+            f = this.F12.inverse(f);
+        }
+
+        c = pre2.coeffs[idx++];
+        f = this._mul_by_024(
+            f,
+            c.ell_0,
+            this.F2.mulScalar(c.ell_VW, pre1.PY),
+            this.F2.mulScalar(c.ell_VV, pre1.PX));
+
+        c = pre2.coeffs[idx++];
+        f = this._mul_by_024(
+            f,
+            c.ell_0,
+            this.F2.mulScalar(c.ell_VW, pre1.PY),
+            this.F2.mulScalar(c.ell_VV, pre1.PX));
+
+        return f;
+    }
+
+    finalExponentiation(elt) {
+        // TODO: There is an optimization in FF
+
+        const res = this.F12.exp(elt,this.final_exponent);
+
+        return res;
+    }
+
+    _doubleStep(current) {
+        const X = current.X;
+        const Y = current.Y;
+        const Z = current.Z;
+
+        const A = this.F2.mulScalar(this.F2.mul(X,Y), this.two_inv);                     // A = X1 * Y1 / 2
+        const B = this.F2.square(Y);                           // B = Y1^2
+        const C = this.F2.square(Z);                           // C = Z1^2
+        const D = this.F2.add(C, this.F2.add(C,C));            // D = 3 * C
+        const E = this.F2.mul(this.twist_coeff_b, D);     // E = twist_b * D
+        const F = this.F2.add(E, this.F2.add(E,E));            // F = 3 * E
+        const G =
+            this.F2.mulScalar(
+                this.F2.add( B , F ),
+                this.two_inv);                            // G = (B+F)/2
+        const H =
+            this.F2.sub(
+                this.F2.square( this.F2.add(Y,Z) ),
+                this.F2.add( B , C));                          // H = (Y1+Z1)^2-(B+C)
+        const I = this.F2.sub(E, B);                           // I = E-B
+        const J = this.F2.square(X);                           // J = X1^2
+        const E_squared = this.F2.square(E);                   // E_squared = E^2
+
+        current.X = this.F2.mul( A, this.F2.sub(B,F) );        // X3 = A * (B-F)
+        current.Y =
+            this.F2.sub(
+                this.F2.sub( this.F2.square(G) , E_squared ),
+                this.F2.add( E_squared , E_squared ));         // Y3 = G^2 - 3*E^2
+        current.Z = this.F2.mul( B, H );                       // Z3 = B * H
+
+        const c = {
+            ell_0 : this.F2.mul( I, this.twist),          // ell_0 = xi * I
+            ell_VW: this.F2.neg( H ),                          // ell_VW = - H (later: * yP)
+            ell_VV: this.F2.add( J , this.F2.add(J,J) )        // ell_VV = 3*J (later: * xP)
+        };
+
+        return c;
+    }
+
+    _addStep(base, current) {
+
+        const X1 = current.X;
+        const Y1 = current.Y;
+        const Z1 = current.Z;
+        const x2 = base[0];
+        const y2 = base[1];
+
+        const D = this.F2.sub( X1, this.F2.mul(x2,Z1) );  // D = X1 - X2*Z1
+
+//        console.log("Y: "+ A[0].affine(this.q).toString(16));
+
+        const E = this.F2.sub( Y1, this.F2.mul(y2,Z1) );  // E = Y1 - Y2*Z1
+        const F = this.F2.square(D);                      // F = D^2
+        const G = this.F2.square(E);                      // G = E^2
+        const H = this.F2.mul(D,F);                       // H = D*F
+        const I = this.F2.mul(X1,F);                      // I = X1 * F
+        const J =
+            this.F2.sub(
+                this.F2.add( H, this.F2.mul(Z1,G) ),
+                this.F2.add( I, I ));                     // J = H + Z1*G - (I+I)
+
+        current.X = this.F2.mul( D , J );                 // X3 = D*J
+        current.Y =
+            this.F2.sub(
+                this.F2.mul( E , this.F2.sub(I,J) ),
+                this.F2.mul( H , Y1));                    // Y3 = E*(I-J)-(H*Y1)
+        current.Z = this.F2.mul(Z1,H);
+        const c = {
+            ell_0 :
+                this.F2.mul(
+                    this.twist,
+                    this.F2.sub(
+                        this.F2.mul(E , x2),
+                        this.F2.mul(D , y2))),            // ell_0 = xi * (E * X2 - D * Y2)
+            ell_VV : this.F2.neg(E),                      // ell_VV = - E (later: * xP)
+            ell_VW : D                                    // ell_VW = D (later: * yP )
+        };
+
+        return c;
+    }
+
+    _mul_by_024(a, ell_0, ell_VW, ell_VV) {
+
+        //  Old implementation
+/*
+        const b = [
+            [ell_0, this.F2.zero, ell_VV],
+            [this.F2.zero, ell_VW, this.F2.zero]
+        ];
+
+        return this.F12.mul(a,b);
+*/
+
+        // This is a new implementation,
+        //  But it does not look worthy
+        //  at least in javascript.
+
+        let z0 = a[0][0];
+        let z1 = a[0][1];
+        let z2 = a[0][2];
+        let z3 = a[1][0];
+        let z4 = a[1][1];
+        let z5 = a[1][2];
+
+        const x0 = ell_0;
+        const x2 = ell_VV;
+        const x4 = ell_VW;
+
+        const D0 = this.F2.mul(z0, x0);
+        const D2 = this.F2.mul(z2, x2);
+        const D4 = this.F2.mul(z4, x4);
+        const t2 = this.F2.add(z0, z4);
+        let t1 = this.F2.add(z0, z2);
+        const s0 = this.F2.add(this.F2.add(z1,z3),z5);
+
+        // For z.a_.a_ = z0.
+        let S1 = this.F2.mul(z1, x2);
+        let T3 = this.F2.add(S1, D4);
+        let T4 = this.F2.add( this.F2.mul(this.nonResidueF6, T3),D0);
+        z0 = T4;
+
+        // For z.a_.b_ = z1
+        T3 = this.F2.mul(z5, x4);
+        S1 = this.F2.add(S1, T3);
+        T3 = this.F2.add(T3, D2);
+        T4 = this.F2.mul(this.nonResidueF6, T3);
+        T3 = this.F2.mul(z1, x0);
+        S1 = this.F2.add(S1, T3);
+        T4 = this.F2.add(T4, T3);
+        z1 = T4;
+
+        // For z.a_.c_ = z2
+        let t0 = this.F2.add(x0, x2);
+        T3 = this.F2.sub(
+            this.F2.mul(t1, t0),
+            this.F2.add(D0, D2));
+        T4 = this.F2.mul(z3, x4);
+        S1 = this.F2.add(S1, T4);
+
+        // For z.b_.a_ = z3 (z3 needs z2)
+        t0 = this.F2.add(z2, z4);
+        z2 = this.F2.add(T3, T4);
+        t1 = this.F2.add(x2, x4);
+        T3 = this.F2.sub(
+            this.F2.mul(t0,t1),
+            this.F2.add(D2, D4));
+
+        T4 = this.F2.mul(this.nonResidueF6,  T3);
+        T3 = this.F2.mul(z3, x0);
+        S1 = this.F2.add(S1, T3);
+        T4 = this.F2.add(T4, T3);
+        z3 = T4;
+
+        // For z.b_.b_ = z4
+        T3 = this.F2.mul(z5, x2);
+        S1 = this.F2.add(S1, T3);
+        T4 = this.F2.mul(this.nonResidueF6, T3);
+        t0 = this.F2.add(x0, x4);
+        T3 = this.F2.sub(
+            this.F2.mul(t2,t0),
+            this.F2.add(D0, D4));
+        T4 = this.F2.add(T4, T3);
+        z4 = T4;
+
+        // For z.b_.c_ = z5.
+        t0 = this.F2.add(this.F2.add(x0, x2), x4);
+        T3 = this.F2.sub(this.F2.mul(s0, t0), S1);
+        z5 = T3;
+
+        return [
+            [z0, z1, z2],
+            [z3, z4, z5]
+        ];
+
+
+    }
+
+    _g2MulByQ(p) {
+        const fmx = [p[0][0], this.F1.mul(p[0][1], this.frobenius_coeffs_c1_1 )];
+        const fmy = [p[1][0], this.F1.mul(p[1][1], this.frobenius_coeffs_c1_1 )];
+        const fmz = [p[2][0], this.F1.mul(p[2][1], this.frobenius_coeffs_c1_1 )];
+        return [
+            this.F2.mul(this.twist_mul_by_q_X , fmx),
+            this.F2.mul(this.twist_mul_by_q_Y , fmy),
+            fmz
+        ];
+    }
+}
+
+module.exports = BN128;
+
+},{"./f2field.js":50,"./f3field.js":51,"./gcurve.js":53,"./zqfield":55,"big-integer":48}],50:[function(require,module,exports){
+/*
+    Copyright 2018 0kims association.
+
+    This file is part of snarkjs.
+
+    snarkjs is a free software: you can redistribute it and/or
+    modify it under the terms of the GNU General Public License as published by the
+    Free Software Foundation, either version 3 of the License, or (at your option)
+    any later version.
+
+    snarkjs is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY
+    or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for
+    more details.
+
+    You should have received a copy of the GNU General Public License along with
+    snarkjs. If not, see <https://www.gnu.org/licenses/>.
+*/
+
+const fUtils = require("./futils.js");
+
+class F2Field {
+    constructor(F, nonResidue) {
+        this.F = F;
+        this.zero = [this.F.zero, this.F.zero];
+        this.one = [this.F.one, this.F.zero];
+        this.nonResidue = nonResidue;
+    }
+
+    _mulByNonResidue(a) {
+        return this.F.mul(this.nonResidue, a);
+    }
+
+    copy(a) {
+        return [this.F.copy(a[0]), this.F.copy(a[1])];
+    }
+
+    add(a, b) {
+        return [
+            this.F.add(a[0], b[0]),
+            this.F.add(a[1], b[1])
+        ];
+    }
+
+    double(a) {
+        return this.add(a,a);
+    }
+
+    sub(a, b) {
+        return [
+            this.F.sub(a[0], b[0]),
+            this.F.sub(a[1], b[1])
+        ];
+    }
+
+    neg(a) {
+        return this.sub(this.zero, a);
+    }
+
+    mul(a, b) {
+        const aA = this.F.mul(a[0] , b[0]);
+        const bB = this.F.mul(a[1] , b[1]);
+
+        return [
+            this.F.add( aA , this._mulByNonResidue(bB)),
+            this.F.sub(
+                this.F.mul(
+                    this.F.add(a[0], a[1]),
+                    this.F.add(b[0], b[1])),
+                this.F.add(aA, bB))];
+    }
+
+    inv(a) {
+        const t0 = this.F.square(a[0]);
+        const t1 = this.F.square(a[1]);
+        const t2 = this.F.sub(t0, this._mulByNonResidue(t1));
+        const t3 = this.F.inv(t2);
+        return [
+            this.F.mul(a[0], t3),
+            this.F.neg(this.F.mul( a[1], t3)) ];
+    }
+
+    div(a, b) {
+        return this.mul(a, this.inv(b));
+    }
+
+    square(a) {
+        const ab = this.F.mul(a[0] , a[1]);
+
+        /*
+        [
+            (a + b) * (a + non_residue * b) - ab - non_residue * ab,
+            ab + ab
+        ];
+        */
+
+        return [
+            this.F.sub(
+                this.F.mul(
+                    this.F.add(a[0], a[1]) ,
+                    this.F.add(
+                        a[0] ,
+                        this._mulByNonResidue(a[1]))),
+                this.F.add(
+                    ab,
+                    this._mulByNonResidue(ab))),
+            this.F.add(ab, ab)
+        ];
+    }
+
+    isZero(a) {
+        return this.F.isZero(a[0]) && this.F.isZero(a[1]);
+    }
+
+    eq(a, b) {
+        return this.F.eq(a[0], b[0]) && this.F.eq(a[1], b[1]);
+    }
+
+    mulScalar(base, e) {
+        return fUtils.mulScalar(this, base, e);
+    }
+
+    exp(base, e) {
+        return fUtils.exp(this, base, e);
+    }
+
+    toString(a) {
+        return `[ ${this.F.toString(a[0])} , ${this.F.toString(a[1])} ]`;
+    }
+}
+
+module.exports = F2Field;
+
+},{"./futils.js":52}],51:[function(require,module,exports){
+/*
+    Copyright 2018 0kims association.
+
+    This file is part of snarkjs.
+
+    snarkjs is a free software: you can redistribute it and/or
+    modify it under the terms of the GNU General Public License as published by the
+    Free Software Foundation, either version 3 of the License, or (at your option)
+    any later version.
+
+    snarkjs is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY
+    or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for
+    more details.
+
+    You should have received a copy of the GNU General Public License along with
+    snarkjs. If not, see <https://www.gnu.org/licenses/>.
+*/
+
+const fUtils = require("./futils.js");
+
+class F3Field {
+    constructor(F, nonResidue) {
+        this.F = F;
+        this.zero = [this.F.zero, this.F.zero, this.F.zero];
+        this.one = [this.F.one, this.F.zero, this.F.zero];
+        this.nonResidue = nonResidue;
+    }
+
+    _mulByNonResidue(a) {
+        return this.F.mul(this.nonResidue, a);
+    }
+
+    copy(a) {
+        return [this.F.copy(a[0]), this.F.copy(a[1]), this.F.copy(a[2])];
+    }
+
+    add(a, b) {
+        return [
+            this.F.add(a[0], b[0]),
+            this.F.add(a[1], b[1]),
+            this.F.add(a[2], b[2])
+        ];
+    }
+
+    double(a) {
+        return this.add(a,a);
+    }
+
+    sub(a, b) {
+        return [
+            this.F.sub(a[0], b[0]),
+            this.F.sub(a[1], b[1]),
+            this.F.sub(a[2], b[2])
+        ];
+    }
+
+    neg(a) {
+        return this.sub(this.zero, a);
+    }
+
+    mul(a, b) {
+
+        const aA = this.F.mul(a[0] , b[0]);
+        const bB = this.F.mul(a[1] , b[1]);
+        const cC = this.F.mul(a[2] , b[2]);
+
+        return [
+            this.F.add(
+                aA,
+                this._mulByNonResidue(
+                    this.F.sub(
+                        this.F.mul(
+                            this.F.add(a[1], a[2]),
+                            this.F.add(b[1], b[2])),
+                        this.F.add(bB, cC)))),    // aA + non_residue*((b+c)*(B+C)-bB-cC),
+
+            this.F.add(
+                this.F.sub(
+                    this.F.mul(
+                        this.F.add(a[0], a[1]),
+                        this.F.add(b[0], b[1])),
+                    this.F.add(aA, bB)),
+                this._mulByNonResidue( cC)),   // (a+b)*(A+B)-aA-bB+non_residue*cC
+
+            this.F.add(
+                this.F.sub(
+                    this.F.mul(
+                        this.F.add(a[0], a[2]),
+                        this.F.add(b[0], b[2])),
+                    this.F.add(aA, cC)),
+                bB)];                           // (a+c)*(A+C)-aA+bB-cC)
+    }
+
+    inv(a) {
+        const t0 = this.F.square(a[0]);             // t0 = a^2 ;
+        const t1 = this.F.square(a[1]);             // t1 = b^2 ;
+        const t2 = this.F.square(a[2]);             // t2 = c^2;
+        const t3 = this.F.mul(a[0],a[1]);           // t3 = ab
+        const t4 = this.F.mul(a[0],a[2]);           // t4 = ac
+        const t5 = this.F.mul(a[1],a[2]);           // t5 = bc;
+        // c0 = t0 - non_residue * t5;
+        const c0 = this.F.sub(t0, this._mulByNonResidue(t5));
+        // c1 = non_residue * t2 - t3;
+        const c1 = this.F.sub(this._mulByNonResidue(t2), t3);
+        const c2 = this.F.sub(t1, t4);              // c2 = t1-t4
+
+        // t6 = (a * c0 + non_residue * (c * c1 + b * c2)).inv();
+        const t6 =
+            this.F.inv(
+                this.F.add(
+                    this.F.mul(a[0], c0),
+                    this._mulByNonResidue(
+                        this.F.add(
+                            this.F.mul(a[2], c1),
+                            this.F.mul(a[1], c2)))));
+
+        return [
+            this.F.mul(t6, c0),         // t6*c0
+            this.F.mul(t6, c1),         // t6*c1
+            this.F.mul(t6, c2)];        // t6*c2
+    }
+
+    div(a, b) {
+        return this.mul(a, this.inv(b));
+    }
+
+    square(a) {
+        const s0 = this.F.square(a[0]);                   // s0 = a^2
+        const ab = this.F.mul(a[0], a[1]);                // ab = a*b
+        const s1 = this.F.add(ab, ab);                    // s1 = 2ab;
+        const s2 = this.F.square(
+            this.F.add(this.F.sub(a[0],a[1]), a[2]));     // s2 = (a - b + c)^2;
+        const bc = this.F.mul(a[1],a[2]);                 // bc = b*c
+        const s3 = this.F.add(bc, bc);                    // s3 = 2*bc
+        const s4 = this.F.square(a[2]);                   // s4 = c^2
+
+
+        return [
+            this.F.add(
+                s0,
+                this._mulByNonResidue(s3)),           // s0 + non_residue * s3,
+            this.F.add(
+                s1,
+                this._mulByNonResidue(s4)),           // s1 + non_residue * s4,
+            this.F.sub(
+                this.F.add( this.F.add(s1, s2) , s3 ),
+                this.F.add(s0, s4))];                      // s1 + s2 + s3 - s0 - s4
+    }
+
+    isZero(a) {
+        return this.F.isZero(a[0]) && this.F.isZero(a[1]) && this.F.isZero(a[2]);
+    }
+
+    eq(a, b) {
+        return this.F.eq(a[0], b[0]) && this.F.eq(a[1], b[1]) && this.F.eq(a[2], b[2]);
+    }
+
+    affine(a) {
+        return [this.F.affine(a[0]), this.F.affine(a[1]), this.F.affine(a[2])];
+    }
+
+    mulScalar(base, e) {
+        return fUtils.mulScalar(this, base, e);
+    }
+
+    exp(base, e) {
+        return fUtils.exp(this, base, e);
+    }
+
+    toString(a) {
+        return `[ ${this.F.toString(a[0])} , ${this.F.toString(a[1])}, ${this.F.toString(a[2])} ]`;
+    }
+}
+
+module.exports = F3Field;
+
+},{"./futils.js":52}],52:[function(require,module,exports){
+/*
+    Copyright 2018 0kims association.
+
+    This file is part of snarkjs.
+
+    snarkjs is a free software: you can redistribute it and/or
+    modify it under the terms of the GNU General Public License as published by the
+    Free Software Foundation, either version 3 of the License, or (at your option)
+    any later version.
+
+    snarkjs is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY
+    or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for
+    more details.
+
+    You should have received a copy of the GNU General Public License along with
+    snarkjs. If not, see <https://www.gnu.org/licenses/>.
+*/
+
+const bigInt = require("big-integer");
+const assert = require("assert");
+
+function naf(n) {
+    let E = n;
+    const res = [];
+    while (E.gt(bigInt.zero)) {
+        if (E.isOdd()) {
+            const z = 2 - E.mod(4).toJSNumber();
+            res.push( z );
+            E = E.minus(z);
+        } else {
+            res.push( 0 );
+        }
+        E = E.shiftRight(1);
+    }
+    return res;
+}
+
+
+exports.mulScalar = (F, base, e) => {
+    let res;
+
+    e = bigInt(e);
+    if (e.eq(bigInt.zero)) return F.zero;
+
+    const n = naf(e);
+
+    if (n[n.length-1] == 1) {
+        res = base;
+    } else if (n[n.length-1] == -1) {
+        res = F.neg(base);
+    } else {
+        assert(false);
+    }
+
+    for (let i=n.length-2; i>=0; i--) {
+
+        res = F.double(res);
+
+        if (n[i] == 1) {
+            res = F.add(res, base);
+        } else if (n[i] == -1) {
+            res = F.sub(res, base);
+        }
+    }
+
+    return res;
+};
+
+
+/*
+exports.mulScalar = (F, base, e) =>{
+    let res = F.zero;
+    let rem = bigInt(e);
+    let exp = base;
+
+    while (! rem.eq(bigInt.zero)) {
+        if (rem.and(bigInt.one).eq(bigInt.one)) {
+            res = F.add(res, exp);
+        }
+        exp = F.double(exp);
+        rem = rem.shiftRight(1);
+    }
+
+    return res;
+};
+*/
+
+exports.exp = (F, base, e) =>{
+    let res = F.one;
+    let rem = bigInt(e);
+    let exp = base;
+
+    while (! rem.eq(bigInt.zero)) {
+        if (rem.and(bigInt.one).eq(bigInt.one)) {
+            res = F.mul(res, exp);
+        }
+        exp = F.square(exp);
+        rem = rem.shiftRight(1);
+    }
+
+    return res;
+};
+
+},{"assert":1,"big-integer":48}],53:[function(require,module,exports){
+/*
+    Copyright 2018 0kims association.
+
+    This file is part of snarkjs.
+
+    snarkjs is a free software: you can redistribute it and/or
+    modify it under the terms of the GNU General Public License as published by the
+    Free Software Foundation, either version 3 of the License, or (at your option)
+    any later version.
+
+    snarkjs is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY
+    or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for
+    more details.
+
+    You should have received a copy of the GNU General Public License along with
+    snarkjs. If not, see <https://www.gnu.org/licenses/>.
+*/
+
+const fUtils = require("./futils.js");
+
+class GCurve {
+
+    constructor(F, g) {
+        this.F = F;
+        this.g = g;
+        if (this.g.length == 2) this.g[2] = this.F.one;
+        this.zero = [this.F.zero, this.F.one, this.F.zero];
+    }
+
+    add(p1, p2) {
+
+        const F = this.F;
+
+        if (this.eq(p1, this.zero)) return p2;
+        if (this.eq(p2, this.zero)) return p1;
+
+        const res = new Array(3);
+
+        const Z1Z1 = F.square( p1[2] );
+        const Z2Z2 = F.square( p2[2] );
+
+        const U1 = F.mul( p1[0] , Z2Z2 );     // U1 = X1  * Z2Z2
+        const U2 = F.mul( p2[0] , Z1Z1 );     // U2 = X2  * Z1Z1
+
+        const Z1_cubed = F.mul( p1[2] , Z1Z1);
+        const Z2_cubed = F.mul( p2[2] , Z2Z2);
+
+        const S1 = F.mul( p1[1] , Z2_cubed);  // S1 = Y1 * Z2 * Z2Z2
+        const S2 = F.mul( p2[1] , Z1_cubed);  // S2 = Y2 * Z1 * Z1Z1
+
+        if (F.eq(U1,U2) && F.eq(S1,S2)) {
+            return this.double(p1);
+        }
+
+        const H = F.sub( U2 , U1 );                    // H = U2-U1
+
+        const S2_minus_S1 = F.sub( S2 , S1 );
+
+        const I = F.square( F.add(H,H) );         // I = (2 * H)^2
+        const J = F.mul( H , I );                      // J = H * I
+
+        const r = F.add( S2_minus_S1 , S2_minus_S1 );  // r = 2 * (S2-S1)
+        const V = F.mul( U1 , I );                     // V = U1 * I
+
+        res[0] =
+            F.sub(
+                F.sub( F.square(r) , J ),
+                F.add( V , V ));                       // X3 = r^2 - J - 2 * V
+
+        const S1_J = F.mul( S1 , J );
+
+        res[1] =
+            F.sub(
+                F.mul( r , F.sub(V,res[0])),
+                F.add( S1_J,S1_J ));                   // Y3 = r * (V-X3)-2 S1 J
+
+        res[2] =
+            F.mul(
+                H,
+                F.sub(
+                    F.square( F.add(p1[2],p2[2]) ),
+                    F.add( Z1Z1 , Z2Z2 )));            // Z3 = ((Z1+Z2)^2-Z1Z1-Z2Z2) * H
+
+        return res;
+    }
+
+    neg(p) {
+        return [p[0], this.F.neg(p[1]), p[2]];
+    }
+
+    sub(a, b) {
+        return this.add(a, this.neg(b));
+    }
+
+    double(p) {
+        const F = this.F;
+
+        const res = new Array(3);
+
+        if (this.eq(p, this.zero)) return p;
+
+        const A = F.square( p[0] );                    // A = X1^2
+        const B = F.square( p[1] );                    // B = Y1^2
+        const C = F.square( B );                       // C = B^2
+
+        let D =
+            F.sub(
+                F.square( F.add(p[0] , B )),
+                F.add( A , C));
+        D = F.add(D,D);                    // D = 2 * ((X1 + B)^2 - A - C)
+
+        const E = F.add( F.add(A,A), A);          // E = 3 * A
+        const FF =F.square( E );                       // F = E^2
+
+        res[0] = F.sub( FF , F.add(D,D) );         // X3 = F - 2 D
+
+        let eightC = F.add( C , C );
+        eightC = F.add( eightC , eightC );
+        eightC = F.add( eightC , eightC );
+
+        res[1] =
+            F.sub(
+                F.mul(
+                    E,
+                    F.sub( D, res[0] )),
+                eightC);                                    // Y3 = E * (D - X3) - 8 * C
+
+        const Y1Z1 = F.mul( p[1] , p[2] );
+        res[2] = F.add( Y1Z1 , Y1Z1 );                 // Z3 = 2 * Y1 * Z1
+
+        return res;
+    }
+
+    mulScalar(base, e) {
+        return fUtils.mulScalar(this, base, e);
+    }
+
+    affine(p) {
+        const F = this.F;
+        if (this.eq(p, this.zero)) {
+            return this.zero;
+        } else {
+            const Z_inv = F.inv(p[2]);
+            const Z2_inv = F.square(Z_inv);
+            const Z3_inv = F.mul(Z2_inv, Z_inv);
+
+            const res = new Array(3);
+            res[0] = F.mul(p[0],Z2_inv);
+            res[1] = F.mul(p[1],Z3_inv);
+            res[2] = F.one;
+
+            return res;
+        }
+    }
+
+    multiAffine(arr) {
+        const keys = Object.keys(arr);
+        const F = this.F;
+        const accMul = new Array(keys.length+1);
+        accMul[0] = F.one;
+        for (let i = 0; i< keys.length; i++) {
+            if (F.eq(arr[keys[i]][2], F.zero)) {
+                accMul[i+1] = accMul[i];
+            } else {
+                accMul[i+1] = F.mul(accMul[i], arr[keys[i]][2]);
+            }
+        }
+
+        accMul[keys.length] = F.inv(accMul[keys.length]);
+
+        for (let i = keys.length-1; i>=0; i--) {
+            if (F.eq(arr[keys[i]][2], F.zero)) {
+                accMul[i] = accMul[i+1];
+                arr[keys[i]] = this.zero;
+            } else {
+                const Z_inv = F.mul(accMul[i], accMul[i+1]);
+                accMul[i] = F.mul(arr[keys[i]][2], accMul[i+1]);
+
+                const Z2_inv = F.square(Z_inv);
+                const Z3_inv = F.mul(Z2_inv, Z_inv);
+
+                arr[keys[i]][0] = F.mul(arr[keys[i]][0],Z2_inv);
+                arr[keys[i]][1] = F.mul(arr[keys[i]][1],Z3_inv);
+                arr[keys[i]][2] = F.one;
+            }
+        }
+
+    }
+
+    eq(p1, p2) {
+        const F = this.F;
+
+        if (this.F.eq(p1[2], this.F.zero)) return this.F.eq(p2[2], this.F.zero);
+        if (this.F.eq(p2[2], this.F.zero)) return false;
+
+        const Z1Z1 = F.square( p1[2] );
+        const Z2Z2 = F.square( p2[2] );
+
+        const U1 = F.mul( p1[0] , Z2Z2 );
+        const U2 = F.mul( p2[0] , Z1Z1 );
+
+        const Z1_cubed = F.mul( p1[2] , Z1Z1);
+        const Z2_cubed = F.mul( p2[2] , Z2Z2);
+
+        const S1 = F.mul( p1[1] , Z2_cubed);
+        const S2 = F.mul( p2[1] , Z1_cubed);
+
+        return (F.eq(U1,U2) && F.eq(S1,S2));
+    }
+
+    toString(p) {
+        const cp = this.affine(p);
+        return `[ ${this.F.toString(cp[0])} , ${this.F.toString(cp[1])} ]`;
+    }
+
+}
+
+module.exports = GCurve;
+
+
+},{"./futils.js":52}],54:[function(require,module,exports){
+/*
+    Copyright 2018 0kims association.
+
+    This file is part of snarkjs.
+
+    snarkjs is a free software: you can redistribute it and/or
+    modify it under the terms of the GNU General Public License as published by the
+    Free Software Foundation, either version 3 of the License, or (at your option)
+    any later version.
+
+    snarkjs is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY
+    or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for
+    more details.
+
+    You should have received a copy of the GNU General Public License along with
+    snarkjs. If not, see <https://www.gnu.org/licenses/>.
+*/
+
+/*
+    This library does operations on polynomials with coefficients in a field F.
+
+    A polynomial P(x) = p0 + p1 * x + p2 * x^2 + ... + pn * x^n  is represented
+    by the array [ p0, p1, p2, ... , pn ].
+ */
+
+const bigInt = require("big-integer");
+
+class PolField {
+    constructor (F) {
+        this.F = F;
+
+        const q = this.F.p;
+        let rem = q.minus(bigInt(1));
+        let s = 0;
+        while (!rem.isOdd()) {
+            s ++;
+            rem = rem.shiftRight(1);
+        }
+
+        const five = this.F.add(this.F.add(this.F.two, this.F.two), this.F.one);
+
+        this.w = new Array(s+1);
+        this.wi = new Array(s+1);
+        this.w[s] = this.F.pow(five, rem);
+        this.wi[s] = this.F.inv(this.w[s]);
+
+        let n=s-1;
+        while (n>=0) {
+            this.w[n] = this.F.square(this.w[n+1]);
+            this.wi[n] = this.F.square(this.wi[n+1]);
+            n--;
+        }
+
+
+        this.roots = [];
+/*        for (let i=0; i<16; i++) {
+            let r = this.F.one;
+            n = 1 << i;
+            const rootsi = new Array(n);
+            for (let j=0; j<n; j++) {
+                rootsi[j] = r;
+                r = this.F.mul(r, this.w[i]);
+            }
+
+            this.roots.push(rootsi);
+        }
+    */
+        this._setRoots(15);
+    }
+
+    _setRoots(n) {
+        for (let i=n; (i>=0) && (!this.roots[i]); i--) {
+            let r = this.F.one;
+            const nroots = 1 << i;
+            const rootsi = new Array(nroots);
+            for (let j=0; j<nroots; j++) {
+                rootsi[j] = r;
+                r = this.F.mul(r, this.w[i]);
+            }
+
+            this.roots[i] = rootsi;
+        }
+    }
+
+    add(a, b) {
+        const m = Math.max(a.length, b.length);
+        const res = new Array(m);
+        for (let i=0; i<m; i++) {
+            res[i] = this.F.add(a[i] || this.F.zero, b[i] || this.F.zero);
+        }
+        return this.reduce(res);
+    }
+
+    double(a) {
+        return this.add(a,a);
+    }
+
+    sub(a, b) {
+        const m = Math.max(a.length, b.length);
+        const res = new Array(m);
+        for (let i=0; i<m; i++) {
+            res[i] = this.F.sub(a[i] || this.F.zero, b[i] || this.F.zero);
+        }
+        return this.reduce(res);
+    }
+
+    mulScalar(p, b) {
+        if (this.F.eq(b, this.F.zero)) return [];
+        if (this.F.eq(b, this.F.one)) return p;
+        const res = new Array(p.length);
+        for (let i=0; i<p.length; i++) {
+            res[i] = this.F.mul(p[i], b);
+        }
+        return res;
+    }
+
+
+
+    mul(a, b) {
+        if (a.length == 0) return [];
+        if (b.length == 0) return [];
+        if (a.length == 1) return this.mulScalar(b, a[0]);
+        if (b.length == 1) return this.mulScalar(a, b[0]);
+
+        if (b.length > a.length) {
+            [b, a] = [a, b];
+        }
+
+        if ((b.length <= 2) || (b.length < log2(a.length))) {
+            return this.mulNormal(a,b);
+        } else {
+            return this.mulFFT(a,b);
+        }
+    }
+
+    mulNormal(a, b) {
+        let res = [];
+        for (let i=0; i<b.length; i++) {
+            res = this.add(res, this.scaleX(this.mulScalar(a, b[i]), i) );
+        }
+        return res;
+    }
+
+    mulFFT(a,b) {
+        const longestN = Math.max(a.length, b.length);
+        const bitsResult = log2(longestN-1)+2;
+        this._setRoots(bitsResult);
+
+        const m = 1 << bitsResult;
+        const ea = this.extend(a,m);
+        const eb = this.extend(b,m);
+
+        const ta = __fft(this, ea, bitsResult, 0, 1, false);
+        const tb = __fft(this, eb, bitsResult, 0, 1, false);
+
+        const tres = new Array(m);
+
+        for (let i=0; i<m; i++) {
+            tres[i] = this.F.mul(ta[i], tb[i]);
+        }
+
+        const res = __fft(this, tres, bitsResult, 0, 1, true);
+
+        const twoinvm = this.F.inv( this.F.mulScalar(this.F.one, m) );
+        const resn = new Array(m);
+        for (let i=0; i<m; i++) {
+            resn[i] = this.F.mul(res[(m-i)%m], twoinvm);
+        }
+
+        return this.reduce(resn);
+    }
+
+
+
+    square(a) {
+        return this.mul(a,a);
+    }
+
+    scaleX(p, n) {
+        if (n==0) {
+            return p;
+        } else if (n>0) {
+            const z = new Array(n).fill(this.F.zero);
+            return z.concat(p);
+        } else {
+            if (-n >= p.length) return [];
+            return p.slice(-n);
+        }
+    }
+
+    eval2(p, x) {
+        let v = this.F.zero;
+        let ix = this.F.one;
+        for (let i=0; i<p.length; i++) {
+            v = this.F.add(v, this.F.mul(p[i], ix));
+            ix = this.F.mul(ix, x);
+        }
+        return v;
+    }
+
+    eval(p,x) {
+        const F = this.F;
+        if (p.length == 0) return F.zero;
+        const m = this._next2Power(p.length);
+        const ep = this.extend(p, m);
+
+        return _eval(ep, x, 0, 1, m);
+
+        function _eval(p, x, offset, step, n) {
+            if (n==1) return p[offset];
+            const newX = F.square(x);
+            const res= F.add(
+                _eval(p, newX, offset, step << 1, n >> 1),
+                F.mul(
+                    x,
+                    _eval(p, newX, offset+step , step << 1, n >> 1)));
+            return res;
+        }
+    }
+
+    lagrange(points) {
+        let roots = [this.F.one];
+        for (let i=0; i<points.length; i++) {
+            roots = this.mul(roots, [this.F.neg(points[i][0]), this.F.one]);
+        }
+
+        let sum = [];
+        for (let i=0; i<points.length; i++) {
+            let mpol = this.ruffini(roots, points[i][0]);
+            const factor =
+                this.F.mul(
+                    this.F.inv(this.eval(mpol, points[i][0])),
+                    points[i][1]);
+            mpol = this.mulScalar(mpol, factor);
+            sum = this.add(sum, mpol);
+        }
+        return sum;
+    }
+
+
+    fft(p) {
+        if (p.length <= 1) return p;
+        const bits = log2(p.length-1)+1;
+        this._setRoots(bits);
+
+        const m = 1 << bits;
+        const ep = this.extend(p, m);
+        const res = __fft(this, ep, bits, 0, 1);
+        return res;
+    }
+
+    ifft(p) {
+
+        if (p.length <= 1) return p;
+        const bits = log2(p.length-1)+1;
+        this._setRoots(bits);
+        const m = 1 << bits;
+        const ep = this.extend(p, m);
+        const res =  __fft(this, ep, bits, 0, 1);
+
+        const twoinvm = this.F.inv( this.F.mulScalar(this.F.one, m) );
+        const resn = new Array(m);
+        for (let i=0; i<m; i++) {
+            resn[i] = this.F.mul(res[(m-i)%m], twoinvm);
+        }
+
+        return resn;
+
+    }
+
+
+    _fft(pall, bits, offset, step) {
+
+        const n = 1 << bits;
+        if (n==1) {
+            return [ pall[offset] ];
+        }
+
+        const ndiv2 = n >> 1;
+        const p1 = this._fft(pall, bits-1, offset, step*2);
+        const p2 = this._fft(pall, bits-1, offset+step, step*2);
+
+        const out = new Array(n);
+
+        let m= this.F.one;
+        for (let i=0; i<ndiv2; i++) {
+            out[i] = this.F.add(p1[i], this.F.mul(m, p2[i]));
+            out[i+ndiv2] = this.F.sub(p1[i], this.F.mul(m, p2[i]));
+            m = this.F.mul(m, this.w[bits]);
+        }
+
+        return out;
+    }
+
+    extend(p, e) {
+        if (e == p.length) return p;
+        const z = new Array(e-p.length).fill(this.F.zero);
+
+        return p.concat(z);
+    }
+
+    reduce(p) {
+        if (p.length == 0) return p;
+        if (! this.F.eq(p[p.length-1], this.F.zero) ) return p;
+        let i=p.length-1;
+        while( i>0 && this.F.eq(p[i], this.F.zero) ) i--;
+        return p.slice(0, i+1);
+    }
+
+    eq(a, b) {
+        const pa = this.reduce(a);
+        const pb = this.reduce(b);
+
+        if (pa.length != pb.length) return false;
+        for (let i=0; i<pb.length; i++) {
+            if (!this.F.eq(pa[i], pb[i])) return false;
+        }
+
+        return true;
+    }
+
+    ruffini(p, r) {
+        const res = new Array(p.length-1);
+        res[res.length-1] = p[p.length-1];
+        for (let i = res.length-2; i>=0; i--) {
+            res[i] = this.F.add(this.F.mul(res[i+1], r), p[i+1]);
+        }
+        return res;
+    }
+
+    _next2Power(v) {
+        v--;
+        v |= v >> 1;
+        v |= v >> 2;
+        v |= v >> 4;
+        v |= v >> 8;
+        v |= v >> 16;
+        v++;
+        return v;
+    }
+
+    toString(p) {
+        const ap = this.normalize(p);
+        let S = "";
+        for (let i=ap.length-1; i>=0; i--) {
+            if (!this.F.eq(p[i], this.F.zero)) {
+                if (S!="") S += " + ";
+                S = S + p[i].toString(10);
+                if (i>0) {
+                    S = S + "x";
+                    if (i>1) {
+                        S = S + "^" +i;
+                    }
+                }
+            }
+        }
+        return S;
+    }
+
+    normalize(p) {
+        const res  = new Array(p.length);
+        for (let i=0; i<p.length; i++) {
+            res[i] = this.F.normalize(p[i]);
+        }
+        return res;
+    }
+
+
+    _reciprocal(p, bits) {
+        const k = 1 << bits;
+        if (k==1) {
+            return [ this.F.inv(p[0]) ];
+        }
+        const np = this.scaleX(p, -k/2);
+        const q = this._reciprocal(np, bits-1);
+        const a = this.scaleX(this.double(q), 3*k/2-2);
+        const b = this.mul( this.square(q), p);
+
+        return this.scaleX(this.sub(a,b),   -(k-2));
+    }
+
+    // divides x^m / v
+    _div2(m, v) {
+        const kbits = log2(v.length-1)+1;
+        const k = 1 << kbits;
+
+        const scaleV = k - v.length;
+
+        // rec = x^(k - 2) / v* x^scaleV =>
+        // rec = x^(k-2-scaleV)/ v
+        //
+        // res = x^m/v = x^(m + (2*k-2 - scaleV) - (2*k-2 - scaleV)) /v =>
+        // res = rec * x^(m - (2*k-2 - scaleV)) =>
+        // res = rec * x^(m - 2*k + 2 + scaleV)
+
+        const rec = this._reciprocal(this.scaleX(v, scaleV), kbits);
+        const res = this.scaleX(rec, m - 2*k + 2 + scaleV);
+
+        return res;
+    }
+
+    div(_u, _v) {
+        if (_u.length < _v.length) return [];
+        const kbits = log2(_v.length-1)+1;
+        const k = 1 << kbits;
+
+        const u = this.scaleX(_u, k-_v.length);
+        const v = this.scaleX(_v, k-_v.length);
+
+        const n = v.length-1;
+        let m = u.length-1;
+
+        const s = this._reciprocal(v, kbits);
+        let t;
+        if (m>2*n) {
+            t = this.sub(this.scaleX([this.F.one], 2*n), this.mul(s, v));
+        }
+
+        let q = [];
+        let rem = u;
+        let us, ut;
+        let finish = false;
+
+        while (!finish) {
+            us = this.mul(rem, s);
+            q = this.add(q, this.scaleX(us, -2*n));
+
+            if ( m > 2*n ) {
+                ut = this.mul(rem, t);
+                rem = this.scaleX(ut, -2*n);
+                m = rem.length-1;
+            } else {
+                finish = true;
+            }
+        }
+
+        return q;
+    }
+
+
+    // returns the ith nth-root of one
+    oneRoot(n, i) {
+        let nbits = log2(n-1)+1;
+        let res = this.F.one;
+        let r = i;
+
+        if(i>=n) {
+            throw new Error("Given 'i' should be lower than 'n'");
+        }
+        else if (1<<nbits !== n) {
+            throw new Error(`Internal errlr: ${n} should equal ${1<<nbits}`);
+        }
+
+        while (r>0) {
+            if (r & 1 == 1) {
+                res = this.F.mul(res, this.w[nbits]);
+            }
+            r = r >> 1;
+            nbits --;
+        }
+        return res;
+    }
+
+    computeVanishingPolinomial(bits, t) {
+        const m = 1 << bits;
+        return this.F.sub(this.F.pow(t, bigInt(m)), this.F.one);
+    }
+
+    evaluateLagrangePolynomials(bits, t) {
+        const m= 1 << bits;
+        const tm = this.F.pow(t, bigInt(m));
+        const u= new Array(m).fill(this.F.zero);
+        this._setRoots(bits);
+        const omega = this.w[bits];
+
+        if (this.F.eq(tm, this.F.one)) {
+            for (let i = 0; i < m; i++) {
+                if (this.F.eq(this.roots[bits][0],t)) { // i.e., t equals omega^i
+                    u[i] = this.F.one;
+                    return u;
+                }
+            }
+        }
+
+        const z = this.F.sub(tm, this.F.one);
+//        let l = this.F.mul(z,  this.F.pow(this.F.twoinv, m));
+        let l = this.F.mul(z,  this.F.inv(bigInt(m)));
+        for (let i = 0; i < m; i++) {
+            u[i] = this.F.mul(l, this.F.inv(this.F.sub(t,this.roots[bits][i])));
+            l = this.F.mul(l, omega);
+        }
+
+        return u;
+    }
+
+    log2(V) {
+        return log2(V);
+    }
+}
+
+function log2( V )
+{
+    return( ( ( V & 0xFFFF0000 ) !== 0 ? ( V &= 0xFFFF0000, 16 ) : 0 ) | ( ( V & 0xFF00FF00 ) !== 0 ? ( V &= 0xFF00FF00, 8 ) : 0 ) | ( ( V & 0xF0F0F0F0 ) !== 0 ? ( V &= 0xF0F0F0F0, 4 ) : 0 ) | ( ( V & 0xCCCCCCCC ) !== 0 ? ( V &= 0xCCCCCCCC, 2 ) : 0 ) | ( ( V & 0xAAAAAAAA ) !== 0 ) );
+}
+
+
+function __fft(PF, pall, bits, offset, step) {
+
+    const n = 1 << bits;
+    if (n==1) {
+        return [ pall[offset] ];
+    } else if (n==2) {
+        return [
+            PF.F.add(pall[offset], pall[offset + step]),
+            PF.F.sub(pall[offset], pall[offset + step])];
+    }
+
+    const ndiv2 = n >> 1;
+    const p1 = __fft(PF, pall, bits-1, offset, step*2);
+    const p2 = __fft(PF, pall, bits-1, offset+step, step*2);
+
+    const out = new Array(n);
+
+    for (let i=0; i<ndiv2; i++) {
+        out[i] = PF.F.add(p1[i], PF.F.mul(PF.roots[bits][i], p2[i]));
+        out[i+ndiv2] = PF.F.sub(p1[i], PF.F.mul(PF.roots[bits][i], p2[i]));
+    }
+
+    return out;
+}
+
+
+module.exports = PolField;
+
+},{"big-integer":48}],55:[function(require,module,exports){
+const bigInt = require("big-integer");
+const assert = require("assert");
+
+function getRandomByte() {
+    if (typeof window !== "undefined") { // Browser
+        if (typeof window.crypto !== "undefined") { // Supported
+            let array = new Uint8Array(1);
+            window.crypto.getRandomValues(array);
+            return array[0];
+        }
+        else { // fallback
+            return Math.floor(Math.random() * 256);
+        }
+    }
+    else { // NodeJS
+        return module.require("crypto").randomBytes(1)[0];
+    }
+}
+
+module.exports = class ZqField {
+    constructor(p) {
+        this.one = bigInt.one;
+        this.zero = bigInt.zero;
+        this.p = p;
+        this.minusone = p.minus(bigInt.one);
+        this.two = bigInt(2);
+        this.half = p.shiftRight(1);
+        this.bitLength = p.bitLength();
+        this.mask = bigInt.one.shiftLeft(this.bitLength).minus(bigInt.one);
+
+        const e = this.minusone.shiftRight(this.one);
+        this.nqr = this.two;
+        let r = this.pow(this.nqr, e);
+        while (!r.equals(this.minusone)) {
+            this.nqr = this.nqr.add(this.one);
+            r = this.pow(this.nqr, e);
+        }
+
+        this.s = this.zero;
+        this.t = this.minusone;
+
+        while (!this.t.isOdd()) {
+            this.s = this.s.add(this.one);
+            this.t = this.t.shiftRight(this.one);
+        }
+
+        this.nqr_to_t = this.pow(this.nqr, this.t);
+    }
+
+    add(a, b) {
+        let res = a.add(b);
+        if (res.geq(this.p)) {
+            res = res.minus(this.p);
+        }
+        return res;
+    }
+
+    sub(a, b) {
+        if (a.geq(b)) {
+            return a.minus(b);
+        } else {
+            return this.p.minus(b.minus(a));
+        }
+    }
+
+    neg(a) {
+        if (a.isZero()) return a;
+        return this.p.minus(a);
+    }
+
+    mul(a, b) {
+        return a.times(b).mod(this.p);
+    }
+
+    mulScalar(base, s) {
+        return base.times(s).mod(this.p);
+    }
+
+    square(a) {
+        return a.square().mod(this.p);
+    }
+
+    eq(a, b) {
+        return a.eq(b);
+    }
+
+    neq(a, b) {
+        return a.neq(b);
+    }
+
+    lt(a, b) {
+        const aa = a.gt(this.half) ? a.minus(this.p) : a;
+        const bb = b.gt(this.half) ? b.minus(this.p) : b;
+        return aa.lt(bb);
+    }
+
+    gt(a, b) {
+        const aa = a.gt(this.half) ? a.minus(this.p) : a;
+        const bb = b.gt(this.half) ? b.minus(this.p) : b;
+        return aa.gt(bb);
+    }
+
+    leq(a, b) {
+        const aa = a.gt(this.half) ? a.minus(this.p) : a;
+        const bb = b.gt(this.half) ? b.minus(this.p) : b;
+        return aa.leq(bb);
+    }
+
+    geq(a, b) {
+        const aa = a.gt(this.half) ? a.minus(this.p) : a;
+        const bb = b.gt(this.half) ? b.minus(this.p) : b;
+        return aa.geq(bb);
+    }
+
+    div(a, b) {
+        assert(!b.isZero(), "Division by zero");
+        return a.times(b.modInv(this.p)).mod(this.p);
+    }
+
+    idiv(a, b) {
+        assert(!b.isZero(), "Division by zero");
+        return a.divide(b);
+    }
+
+    inv(a) {
+        assert(!a.isZero(), "Division by zero");
+        return a.modInv(this.p);
+    }
+
+    mod(a, b) {
+        return a.mod(b);
+    }
+
+    pow(a, b) {
+        return a.modPow(b, this.p);
+    }
+
+    band(a, b) {
+        return a.and(b).and(this.mask).mod(this.p);
+    }
+
+    bor(a, b) {
+        return a.or(b).and(this.mask).mod(this.p);
+    }
+
+    bxor(a, b) {
+        return a.xor(b).and(this.mask).mod(this.p);
+    }
+
+    bnot(a) {
+        return a.xor(this.mask).mod(this.p);
+    }
+
+    shl(a, b) {
+        if (b.lt(this.bitLength)) {
+            return a.shiftLeft(b).and(this.mask).mod(this.p);
+        } else {
+            const nb = this.p.minus(b);
+            if (nb.lt(this.bitLength)) {
+                return this.shr(a, nb);
+            } else {
+                return bigInt.zero;
+            }
+        }
+    }
+
+    shr(a, b) {
+        if (b.lt(this.bitLength)) {
+            return a.shiftRight(b);
+        } else {
+            const nb = this.p.minus(b);
+            if (nb.lt(this.bitLength)) {
+                return this.shl(a, nb);
+            } else {
+                return bigInt.zero;
+            }
+        }
+    }
+
+    land(a, b) {
+        return (a.isZero() || b.isZero()) ? bigInt.zero : bigInt.one;
+    }
+
+    lor(a, b) {
+        return (a.isZero() && b.isZero()) ? bigInt.zero : bigInt.one;
+    }
+
+    lnot(a) {
+        return a.isZero() ? bigInt.one : bigInt.zero;
+    }
+
+    sqrt(n) {
+
+        if (n.equals(this.zero)) return this.zero;
+
+        // Test that have solution
+        const res = this.pow(n, this.minusone.shiftRight(this.one));
+        if (!res.equals(this.one)) return null;
+
+        let m = parseInt(this.s);
+        let c = this.nqr_to_t;
+        let t = this.pow(n, this.t);
+        let r = this.pow(n, this.add(this.t, this.one).shiftRight(this.one) );
+
+        while (!t.equals(this.one)) {
+            let sq = this.square(t);
+            let i = 1;
+            while (!sq.equals(this.one)) {
+                i++;
+                sq = this.square(sq);
+            }
+
+            // b = c ^ m-i-1
+            let b = c;
+            for (let j=0; j< m-i-1; j ++) b = this.square(b);
+
+            m = i;
+            c = this.square(b);
+            t = this.mul(t, c);
+            r = this.mul(r, b);
+        }
+
+        if (r.greater(this.p.shiftRight(this.one))) {
+            r = this.neg(r);
+        }
+
+        return r;
+    }
+
+    normalize(a) {
+        a = bigInt(a);
+        if (a.isNegative()) {
+            return this.p.minus(a.abs().mod(this.p));
+        } else {
+            return a.mod(this.p);
+        }
+    }
+
+    random() {
+        let res = bigInt(0);
+        let n = bigInt(this.p.square());
+        while (!n.isZero()) {
+            res = res.shiftLeft(8).add(bigInt(getRandomByte()));
+            n = n.shiftRight(8);
+        }
+        return res.mod(this.p);
+    }
+
+    toString(a, base) {
+        return a.toString(base);
+    }
+
+};
+
+
+},{"assert":1,"big-integer":48}],56:[function(require,module,exports){
+/*
+    Copyright 2018 0kims association.
+
+    This file is part of snarkjs.
+
+    snarkjs is a free software: you can redistribute it and/or
+    modify it under the terms of the GNU General Public License as published by the
+    Free Software Foundation, either version 3 of the License, or (at your option)
+    any later version.
+
+    snarkjs is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY
+    or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for
+    more details.
+
+    You should have received a copy of the GNU General Public License along with
+    snarkjs. If not, see <https://www.gnu.org/licenses/>.
+*/
+
+/* Implementation of this paper: https://eprint.iacr.org/2016/260.pdf */
+
+const bn128 = require("ffjavascript").bn128;
+const PolField = require("ffjavascript").PolField;
+const ZqField = require("ffjavascript").ZqField;
+
+const PolF = new PolField(new ZqField(bn128.r));
+const G1 = bn128.G1;
+const G2 = bn128.G2;
+
+module.exports = function genProof(vk_proof, witness) {
+
+    const proof = {};
+
+    const r = PolF.F.random();
+    const s = PolF.F.random();
+
+/* Uncomment to generate a deterministic proof to debug
+    const r = PolF.F.zero;
+    const s = PolF.F.zero;
+*/
+
+
+    proof.pi_a = G1.zero;
+    proof.pi_b = G2.zero;
+    proof.pi_c = G1.zero;
+
+    let pib1 = G1.zero;
+
+
+    // Skip public entries and the "1" signal that are forced by the verifier
+
+    for (let s= 0; s< vk_proof.nVars; s++) {
+        // pi_a = pi_a + A[s] * witness[s];
+        proof.pi_a = G1.add( proof.pi_a, G1.mulScalar( vk_proof.A[s], witness[s]));
+
+        // pi_b = pi_b + B[s] * witness[s];
+        proof.pi_b = G2.add( proof.pi_b, G2.mulScalar( vk_proof.B2[s], witness[s]));
+
+        pib1 = G1.add( pib1, G1.mulScalar( vk_proof.B1[s], witness[s]));
+    }
+
+    for (let s= vk_proof.nPublic+1; s< vk_proof.nVars; s++) {
+
+        // pi_a  = pi_a  + A[s]  * witness[s];
+        proof.pi_c  = G1.add( proof.pi_c, G1.mulScalar( vk_proof.C[s], witness[s]));
+    }
+
+    proof.pi_a  = G1.add( proof.pi_a, vk_proof.vk_alfa_1 );
+    proof.pi_a  = G1.add( proof.pi_a, G1.mulScalar( vk_proof.vk_delta_1, r ));
+
+    proof.pi_b  = G2.add( proof.pi_b, vk_proof.vk_beta_2 );
+    proof.pi_b  = G2.add( proof.pi_b, G2.mulScalar( vk_proof.vk_delta_2, s ));
+
+    pib1 = G1.add( pib1, vk_proof.vk_beta_1 );
+    pib1 = G1.add( pib1, G1.mulScalar( vk_proof.vk_delta_1, s ));
+
+    const h = calculateH(vk_proof, witness);
+
+    // proof.pi_c = G1.affine(proof.pi_c);
+    // console.log("pi_onlyc", proof.pi_c);
+
+    for (let i = 0; i < h.length; i++) {
+        // console.log(i + "->" + h[i].toString());
+        proof.pi_c = G1.add( proof.pi_c, G1.mulScalar( vk_proof.hExps[i], h[i]));
+    }
+
+    // proof.pi_c = G1.affine(proof.pi_c);
+    // console.log("pi_candh", proof.pi_c);
+
+    proof.pi_c  = G1.add( proof.pi_c, G1.mulScalar( proof.pi_a, s ));
+    proof.pi_c  = G1.add( proof.pi_c, G1.mulScalar( pib1, r ));
+    proof.pi_c  = G1.add( proof.pi_c, G1.mulScalar( vk_proof.vk_delta_1, PolF.F.neg(PolF.F.mul(r,s) )));
+
+
+    const publicSignals = witness.slice(1, vk_proof.nPublic+1);
+
+    proof.pi_a = G1.affine(proof.pi_a);
+    proof.pi_b = G2.affine(proof.pi_b);
+    proof.pi_c = G1.affine(proof.pi_c);
+
+    proof.protocol = "groth";
+
+    return {proof, publicSignals};
+
+};
+
+
+/*
+// Old Method.  (It's clear for academic understanding)
+function calculateH(vk_proof, witness) {
+
+    const F = PolF.F;
+    const m = vk_proof.domainSize;
+    const polA_T = new Array(m).fill(PolF.F.zero);
+    const polB_T = new Array(m).fill(PolF.F.zero);
+    const polC_T = new Array(m).fill(PolF.F.zero);
+
+    for (let s=0; s<vk_proof.nVars; s++) {
+        for (let c in vk_proof.polsA[s]) {
+            polA_T[c] = F.add(polA_T[c], F.mul(witness[s], vk_proof.polsA[s][c]));
+        }
+        for (let c in vk_proof.polsB[s]) {
+            polB_T[c] = F.add(polB_T[c], F.mul(witness[s], vk_proof.polsB[s][c]));
+        }
+
+        for (let c in vk_proof.polsC[s]) {
+            polC_T[c] = F.add(polC_T[c], F.mul(witness[s], vk_proof.polsC[s][c]));
+        }
+
+    }
+
+    const polA_S = PolF.ifft(polA_T);
+    const polB_S = PolF.ifft(polB_T);
+
+    const polAB_S = PolF.mul(polA_S, polB_S);
+
+    const polC_S = PolF.ifft(polC_T);
+
+    const polABC_S = PolF.sub(polAB_S, polC_S);
+
+    const H_S = polABC_S.slice(m);
+
+    return H_S;
+}
+*/
+
+function calculateH(vk_proof, witness) {
+
+    const F = PolF.F;
+    const m = vk_proof.domainSize;
+    const polA_T = new Array(m).fill(PolF.F.zero);
+    const polB_T = new Array(m).fill(PolF.F.zero);
+
+    for (let s=0; s<vk_proof.nVars; s++) {
+        for (let c in vk_proof.polsA[s]) {
+            polA_T[c] = F.add(polA_T[c], F.mul(witness[s], vk_proof.polsA[s][c]));
+        }
+        for (let c in vk_proof.polsB[s]) {
+            polB_T[c] = F.add(polB_T[c], F.mul(witness[s], vk_proof.polsB[s][c]));
+        }
+    }
+
+    const polA_S = PolF.ifft(polA_T);
+    const polB_S = PolF.ifft(polB_T);
+
+    // F(wx) = [1, w, w^2, ...... w^(m-1)] in time is the same than shift in in frequency
+    const r = PolF.log2(m)+1;
+    PolF._setRoots(r);
+    for (let i=0; i<polA_S.length; i++) {
+        polA_S[i] = PolF.F.mul( polA_S[i], PolF.roots[r][i]);
+        polB_S[i] = PolF.F.mul( polB_S[i], PolF.roots[r][i]);
+    }
+
+    const polA_Todd = PolF.fft(polA_S);
+    const polB_Todd = PolF.fft(polB_S);
+
+    const polAB_T = new Array(polA_S.length*2);
+    for (let i=0; i<polA_S.length; i++) {
+        polAB_T[2*i] = PolF.F.mul( polA_T[i], polB_T[i]);
+        polAB_T[2*i+1] = PolF.F.mul( polA_Todd[i], polB_Todd[i]);
+    }
+
+    // We only need the to half of the fft, so we could optimize at least by m multiplications.
+    let H_S = PolF.ifft(polAB_T);
+
+    H_S = H_S.slice(m);
+
+    return H_S;
+
+}
+
+},{"ffjavascript":47}],57:[function(require,module,exports){
+(function (Buffer){
+/*
+    Copyright 2018 0kims association.
+
+    This file is part of snarkjs.
+
+    snarkjs is a free software: you can redistribute it and/or
+    modify it under the terms of the GNU General Public License as published by the
+    Free Software Foundation, either version 3 of the License, or (at your option)
+    any later version.
+
+    snarkjs is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY
+    or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for
+    more details.
+
+    You should have received a copy of the GNU General Public License along with
+    snarkjs. If not, see <https://www.gnu.org/licenses/>.
+*/
+
+/* Implementation of this paper: https://eprint.iacr.org/2016/260.pdf */
+
+const bn128 = require("ffjavascript").bn128;
+const PolField = require("ffjavascript").PolField;
+const ZqField = require("ffjavascript").ZqField;
+const createKeccakHash = require("keccak");
+const utils = require("./utils");
+
+
+const PolF = new PolField(new ZqField(bn128.r));
+const G1 = bn128.G1;
+const G2 = bn128.G2;
+
+module.exports = function genProof(vk_proof, witness) {
+
+    const proof = {};
+
+    const r = PolF.F.random();
+    const s = PolF.F.random();
+
+//    const r = PolF.F.zero;
+//    const s = PolF.F.zero;
+
+/* Uncomment to generate a deterministic proof to debug
+    const r = PolF.F.zero;
+    const s = PolF.F.zero;
+*/
+
+
+    proof.pi_a = G1.zero;
+    proof.pi_b = G2.zero;
+    proof.pi_c = G1.zero;
+
+    let pib1 = G1.zero;
+    let piadelta = G1.zero;
+
+
+    // Skip public entries and the "1" signal that are forced by the verifier
+
+    for (let s= 0; s< vk_proof.nVars; s++) {
+        // pi_a = pi_a + A[s] * witness[s];
+        proof.pi_a = G1.add( proof.pi_a, G1.mulScalar( vk_proof.A[s], witness[s]));
+
+        // pi_b = pi_b + B[s] * witness[s];
+        proof.pi_b = G2.add( proof.pi_b, G2.mulScalar( vk_proof.B2[s], witness[s]));
+
+        piadelta = G1.add( piadelta, G1.mulScalar( vk_proof.Adelta[s], witness[s]));
+        pib1 = G1.add( pib1, G1.mulScalar( vk_proof.B1[s], witness[s]));
+    }
+
+    for (let s= vk_proof.nPublic+1; s< vk_proof.nVars; s++) {
+
+        // pi_a  = pi_a  + A[s]  * witness[s];
+        proof.pi_c  = G1.add( proof.pi_c, G1.mulScalar( vk_proof.C[s], witness[s]));
+    }
+
+    proof.pi_a  = G1.add( proof.pi_a, vk_proof.vk_alfa_1 );
+    proof.pi_a  = G1.add( proof.pi_a, G1.mulScalar( G1.g, r ));
+
+    piadelta = G1.add( piadelta, vk_proof.vk_alfadelta_1);
+    piadelta = G1.add( piadelta, G1.mulScalar( vk_proof.vk_delta_1, r ));
+
+    proof.pi_b  = G2.add( proof.pi_b, vk_proof.vk_beta_2 );
+    proof.pi_b  = G2.add( proof.pi_b, G2.mulScalar( G2.g, s ));
+
+    pib1 = G1.add( pib1, vk_proof.vk_beta_1 );
+    pib1 = G1.add( pib1, G1.mulScalar( G1.g, s ));
+
+    proof.pi_a = G1.affine(proof.pi_a);
+    proof.pi_b = G2.affine(proof.pi_b);
+
+    const buff = Buffer.concat([
+        utils.beInt2Buff(proof.pi_a[0],32),
+        utils.beInt2Buff(proof.pi_a[1],32),
+        utils.beInt2Buff(proof.pi_b[0][0],32),
+        utils.beInt2Buff(proof.pi_b[0][1],32),
+        utils.beInt2Buff(proof.pi_b[1][0],32),
+        utils.beInt2Buff(proof.pi_b[1][1],32)
+    ]);
+
+    const h1buff = createKeccakHash("keccak256").update(buff).digest();
+    const h2buff = createKeccakHash("keccak256").update(h1buff).digest();
+
+    const h1 = utils.beBuff2int(h1buff);
+    const h2 = utils.beBuff2int(h2buff);
+
+    // const h1 = PolF.F.zero;
+    // const h2 = PolF.F.zero;
+
+    // console.log(h1.toString());
+    // console.log(h2.toString());
+
+    const h = calculateH(vk_proof, witness);
+
+    // proof.pi_c = G1.affine(proof.pi_c);
+    // console.log("pi_onlyc", proof.pi_c);
+
+    for (let i = 0; i < h.length; i++) {
+        // console.log(i + "->" + h[i].toString());
+        proof.pi_c = G1.add( proof.pi_c, G1.mulScalar( vk_proof.hExps[i], h[i]));
+    }
+
+    // proof.pi_c = G1.affine(proof.pi_c);
+    // console.log("pi_candh", proof.pi_c);
+
+    proof.pi_c  = G1.add( proof.pi_c, G1.mulScalar( proof.pi_a, s ));
+    proof.pi_c  = G1.add( proof.pi_c, G1.mulScalar( pib1, r ));
+    proof.pi_c  = G1.add( proof.pi_c, G1.mulScalar( G1.g, PolF.F.neg(PolF.F.mul(r,s) )));
+
+    proof.pi_c  = G1.add( proof.pi_c, G1.mulScalar( piadelta, h2 ));
+    proof.pi_c  = G1.add( proof.pi_c, G1.mulScalar( pib1, h1 ));
+    proof.pi_c  = G1.add( proof.pi_c, G1.mulScalar( vk_proof.vk_delta_1, PolF.F.mul(h1,h2)));
+
+    const publicSignals = witness.slice(1, vk_proof.nPublic+1);
+
+    proof.pi_c = G1.affine(proof.pi_c);
+
+    proof.protocol = "kimleeoh";
+
+    return {proof, publicSignals};
+
+};
+
+
+function calculateH(vk_proof, witness) {
+
+    const F = PolF.F;
+    const m = vk_proof.domainSize;
+    const polA_T = new Array(m).fill(PolF.F.zero);
+    const polB_T = new Array(m).fill(PolF.F.zero);
+    const polC_T = new Array(m).fill(PolF.F.zero);
+
+    for (let s=0; s<vk_proof.nVars; s++) {
+        for (let c in vk_proof.polsA[s]) {
+            polA_T[c] = F.add(polA_T[c], F.mul(witness[s], vk_proof.polsA[s][c]));
+        }
+        for (let c in vk_proof.polsB[s]) {
+            polB_T[c] = F.add(polB_T[c], F.mul(witness[s], vk_proof.polsB[s][c]));
+        }
+        for (let c in vk_proof.polsC[s]) {
+            polC_T[c] = F.add(polC_T[c], F.mul(witness[s], vk_proof.polsC[s][c]));
+        }
+    }
+
+    const polA_S = PolF.ifft(polA_T);
+    const polB_S = PolF.ifft(polB_T);
+
+    const polAB_S = PolF.mul(polA_S, polB_S);
+
+    const polC_S = PolF.ifft(polC_T);
+
+    const polABC_S = PolF.sub(polAB_S, polC_S);
+
+    const H_S = polABC_S.slice(m);
+
+    return H_S;
+}
+
+}).call(this,require("buffer").Buffer)
+},{"./utils":62,"buffer":7,"ffjavascript":47,"keccak":40}],58:[function(require,module,exports){
+/*
+    Copyright 2018 0kims association.
+
+    This file is part of snarkjs.
+
+    snarkjs is a free software: you can redistribute it and/or
+    modify it under the terms of the GNU General Public License as published by the
+    Free Software Foundation, either version 3 of the License, or (at your option)
+    any later version.
+
+    snarkjs is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY
+    or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for
+    more details.
+
+    You should have received a copy of the GNU General Public License along with
+    snarkjs. If not, see <https://www.gnu.org/licenses/>.
+*/
+
+const bn128 = require("ffjavascript").bn128;
+const PolField = require("ffjavascript").PolField;
+const ZqField = require("ffjavascript").ZqField;
+
+const PolF = new PolField(new ZqField(bn128.r));
+const G1 = bn128.G1;
+const G2 = bn128.G2;
+
+module.exports = function genProof(vk_proof, witness) {
+
+    const proof = {};
+
+
+    const d1 = PolF.F.random();
+    const d2 = PolF.F.random();
+    const d3 = PolF.F.random();
+
+    proof.pi_a = G1.zero;
+    proof.pi_ap = G1.zero;
+    proof.pi_b = G2.zero;
+    proof.pi_bp = G1.zero;
+    proof.pi_c = G1.zero;
+    proof.pi_cp = G1.zero;
+    proof.pi_kp = G1.zero;
+    proof.pi_h = G1.zero;
+
+
+    // Skip public entries and the "1" signal that are forced by the verifier
+    for (let s= vk_proof.nPublic+1; s< vk_proof.nVars; s++) {
+
+        // pi_a  = pi_a  + A[s]  * witness[s];
+        proof.pi_a  = G1.add( proof.pi_a, G1.mulScalar( vk_proof.A[s], witness[s]));
+
+        // pi_ap = pi_ap + Ap[s] * witness[s];
+        proof.pi_ap = G1.add( proof.pi_ap, G1.mulScalar( vk_proof.Ap[s], witness[s]));
+    }
+
+    for (let s= 0; s< vk_proof.nVars; s++) {
+        // pi_a  = pi_a  + A[s]  * witness[s];
+        proof.pi_b  = G2.add( proof.pi_b, G2.mulScalar( vk_proof.B[s], witness[s]));
+
+        // pi_ap = pi_ap + Ap[s] * witness[s];
+        proof.pi_bp = G1.add( proof.pi_bp, G1.mulScalar( vk_proof.Bp[s], witness[s]));
+
+        // pi_a  = pi_a  + A[s]  * witness[s];
+        proof.pi_c  = G1.add( proof.pi_c, G1.mulScalar( vk_proof.C[s], witness[s]));
+
+        // pi_ap = pi_ap + Ap[s] * witness[s];
+        proof.pi_cp = G1.add( proof.pi_cp, G1.mulScalar( vk_proof.Cp[s], witness[s]));
+
+        // pi_ap = pi_ap + Ap[s] * witness[s];
+        proof.pi_kp = G1.add( proof.pi_kp, G1.mulScalar( vk_proof.Kp[s], witness[s]));
+    }
+
+    proof.pi_a  = G1.add( proof.pi_a, G1.mulScalar( vk_proof.A[vk_proof.nVars], d1));
+    proof.pi_ap  = G1.add( proof.pi_ap, G1.mulScalar( vk_proof.Ap[vk_proof.nVars], d1));
+
+    proof.pi_b  = G2.add( proof.pi_b, G2.mulScalar( vk_proof.B[vk_proof.nVars], d2));
+    proof.pi_bp  = G1.add( proof.pi_bp, G1.mulScalar( vk_proof.Bp[vk_proof.nVars], d2));
+
+    proof.pi_c  = G1.add( proof.pi_c, G1.mulScalar( vk_proof.C[vk_proof.nVars], d3));
+    proof.pi_cp  = G1.add( proof.pi_cp, G1.mulScalar( vk_proof.Cp[vk_proof.nVars], d3));
+
+    proof.pi_kp  = G1.add( proof.pi_kp, G1.mulScalar( vk_proof.Kp[vk_proof.nVars  ], d1));
+    proof.pi_kp  = G1.add( proof.pi_kp, G1.mulScalar( vk_proof.Kp[vk_proof.nVars+1], d2));
+    proof.pi_kp  = G1.add( proof.pi_kp, G1.mulScalar( vk_proof.Kp[vk_proof.nVars+2], d3));
+
+/*
+    let polA = [];
+    let polB = [];
+    let polC = [];
+
+    for (let s= 0; s< vk_proof.nVars; s++) {
+        polA = PolF.add(
+            polA,
+            PolF.mul(
+                vk_proof.polsA[s],
+                [witness[s]] ));
+
+        polB = PolF.add(
+            polB,
+            PolF.mul(
+                vk_proof.polsB[s],
+                [witness[s]] ));
+
+        polC = PolF.add(
+            polC,
+            PolF.mul(
+                vk_proof.polsC[s],
+                [witness[s]] ));
+    }
+
+
+    let polFull = PolF.sub(PolF.mul( polA, polB), polC);
+
+    const h = PolF.div(polFull, vk_proof.polZ );
+*/
+
+    const h = calculateH(vk_proof, witness, d1, d2, d3);
+
+//    console.log(h.length + "/" + vk_proof.hExps.length);
+
+    for (let i = 0; i < h.length; i++) {
+        proof.pi_h = G1.add( proof.pi_h, G1.mulScalar( vk_proof.hExps[i], h[i]));
+    }
+
+    proof.pi_a = G1.affine(proof.pi_a);
+    proof.pi_b = G2.affine(proof.pi_b);
+    proof.pi_c = G1.affine(proof.pi_c);
+    proof.pi_ap = G1.affine(proof.pi_ap);
+    proof.pi_bp = G1.affine(proof.pi_bp);
+    proof.pi_cp = G1.affine(proof.pi_cp);
+    proof.pi_kp = G1.affine(proof.pi_kp);
+    proof.pi_h = G1.affine(proof.pi_h);
+
+//    proof.h=h;
+
+    proof.protocol = "original";
+
+    const publicSignals = witness.slice(1, vk_proof.nPublic+1);
+
+    return {proof, publicSignals};
+};
+
+
+function calculateH(vk_proof, witness, d1, d2, d3) {
+
+    const F = PolF.F;
+    const m = vk_proof.domainSize;
+    const polA_T = new Array(m).fill(PolF.F.zero);
+    const polB_T = new Array(m).fill(PolF.F.zero);
+    const polC_T = new Array(m).fill(PolF.F.zero);
+
+    for (let s=0; s<vk_proof.nVars; s++) {
+        for (let c in vk_proof.polsA[s]) {
+            polA_T[c] = F.add(polA_T[c], F.mul(witness[s], vk_proof.polsA[s][c]));
+        }
+        for (let c in vk_proof.polsB[s]) {
+            polB_T[c] = F.add(polB_T[c], F.mul(witness[s], vk_proof.polsB[s][c]));
+        }
+        for (let c in vk_proof.polsC[s]) {
+            polC_T[c] = F.add(polC_T[c], F.mul(witness[s], vk_proof.polsC[s][c]));
+        }
+    }
+
+    const polA_S = PolF.ifft(polA_T);
+    const polB_S = PolF.ifft(polB_T);
+
+    const polAB_S = PolF.mul(polA_S, polB_S);
+
+    const polC_S = PolF.ifft(polC_T);
+
+    const polABC_S = PolF.sub(polAB_S, polC_S);
+
+    const polZ_S = new Array(m+1).fill(F.zero);
+    polZ_S[m] = F.one;
+    polZ_S[0] = F.neg(F.one);
+
+    let H_S = PolF.div(polABC_S, polZ_S);
+/*
+    const H2S = PolF.mul(H_S, polZ_S);
+
+    if (PolF.equals(H2S, polABC_S)) {
+        console.log("Is Divisible!");
+    } else {
+        console.log("ERROR: Not divisible!");
+    }
+*/
+
+    /* add coefficients of the polynomial (d2*A + d1*B - d3) + d1*d2*Z */
+
+    H_S = PolF.extend(H_S, m+1);
+
+    for (let i=0; i<m; i++) {
+        const d2A = PolF.F.mul(d2, polA_S[i]);
+        const d1B = PolF.F.mul(d1, polB_S[i]);
+        H_S[i] = PolF.F.add(H_S[i], PolF.F.add(d2A, d1B));
+    }
+
+    H_S[0] = PolF.F.sub(H_S[0], d3);
+
+    // Z = x^m -1
+    const d1d2 = PolF.F.mul(d1, d2);
+    H_S[m] = PolF.F.add(H_S[m], d1d2);
+    H_S[0] = PolF.F.sub(H_S[0], d1d2);
+
+    H_S = PolF.reduce(H_S);
+
+    return H_S;
+}
+
+},{"ffjavascript":47}],59:[function(require,module,exports){
+/*
+    Copyright 2018 0kims association.
+
+    This file is part of snarkjs.
+
+    snarkjs is a free software: you can redistribute it and/or
+    modify it under the terms of the GNU General Public License as published by the
+    Free Software Foundation, either version 3 of the License, or (at your option)
+    any later version.
+
+    snarkjs is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY
+    or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for
+    more details.
+
+    You should have received a copy of the GNU General Public License along with
+    snarkjs. If not, see <https://www.gnu.org/licenses/>.
+*/
+
+/* Implementation of this paper: https://eprint.iacr.org/2016/260.pdf */
+
+const bigInt = require("big-integer");
+
+const bn128 = require("ffjavascript").bn128;
+const PolField = require("ffjavascript").PolField;
+const ZqField = require("ffjavascript").ZqField;
+
+const G1 = bn128.G1;
+const G2 = bn128.G2;
+const PolF = new PolField(new ZqField(bn128.r));
+const F = new ZqField(bn128.r);
+
+module.exports = function setup(circuit, verbose) {
+    const setup = {
+        vk_proof : {
+            protocol: "groth",
+            nVars: circuit.nVars,
+            nPublic: circuit.nPubInputs + circuit.nOutputs
+        },
+        vk_verifier: {
+            protocol: "groth",
+            nPublic: circuit.nPubInputs + circuit.nOutputs
+        },
+        toxic: {}
+    };
+
+
+    setup.vk_proof.domainBits = PolF.log2(circuit.nConstraints + circuit.nPubInputs + circuit.nOutputs +1 -1) +1;
+    setup.vk_proof.domainSize = 1 << setup.vk_proof.domainBits;
+
+    calculatePolinomials(setup, circuit);
+    setup.toxic.t = F.random();
+    calculateEncriptedValuesAtT(setup, circuit, verbose);
+
+    return setup;
+};
+
+
+function calculatePolinomials(setup, circuit) {
+
+    setup.vk_proof.polsA = new Array(circuit.nVars);
+    setup.vk_proof.polsB = new Array(circuit.nVars);
+    setup.vk_proof.polsC = new Array(circuit.nVars);
+    for (let i=0; i<circuit.nVars; i++) {
+        setup.vk_proof.polsA[i] = {};
+        setup.vk_proof.polsB[i] = {};
+        setup.vk_proof.polsC[i] = {};
+    }
+    for (let c=0; c<circuit.nConstraints; c++) {
+
+        for (let s in circuit.constraints[c][0]) {
+            setup.vk_proof.polsA[s][c] = bigInt(circuit.constraints[c][0][s]);
+        }
+        for (let s in circuit.constraints[c][1]) {
+            setup.vk_proof.polsB[s][c] = bigInt(circuit.constraints[c][1][s]);
+        }
+        for (let s in circuit.constraints[c][2]) {
+            setup.vk_proof.polsC[s][c] = bigInt(circuit.constraints[c][2][s]);
+        }
+    }
+
+    /**
+     * add and process the constraints
+     *     input_i * 0 = 0
+     * to ensure soundness of input consistency
+     */
+    for (let i = 0; i < circuit.nPubInputs + circuit.nOutputs + 1; ++i)
+    {
+        setup.vk_proof.polsA[i][circuit.nConstraints + i] = F.one;
+    }
+}
+
+function calculateValuesAtT(setup, circuit) {
+    const z_t = PolF.computeVanishingPolinomial(setup.vk_proof.domainBits, setup.toxic.t);
+    const u = PolF.evaluateLagrangePolynomials(setup.vk_proof.domainBits, setup.toxic.t);
+
+    const a_t = new Array(circuit.nVars).fill(F.zero);
+    const b_t = new Array(circuit.nVars).fill(F.zero);
+    const c_t = new Array(circuit.nVars).fill(F.zero);
+
+    // TODO: substitute setup.polsA for coeficients
+    for (let s=0; s<circuit.nVars; s++) {
+        for (let c in setup.vk_proof.polsA[s]) {
+            a_t[s] = F.add(a_t[s], F.mul(u[c], setup.vk_proof.polsA[s][c]));
+        }
+        for (let c in setup.vk_proof.polsB[s]) {
+            b_t[s] = F.add(b_t[s], F.mul(u[c], setup.vk_proof.polsB[s][c]));
+        }
+        for (let c in setup.vk_proof.polsC[s]) {
+            c_t[s] = F.add(c_t[s], F.mul(u[c], setup.vk_proof.polsC[s][c]));
+        }
+    }
+
+    return {a_t, b_t, c_t, z_t};
+
+}
+
+
+
+
+function calculateEncriptedValuesAtT(setup, circuit, verbose) {
+
+    const v = calculateValuesAtT(setup, circuit);
+    setup.vk_proof.A = new Array(circuit.nVars);
+    setup.vk_proof.B1 = new Array(circuit.nVars);
+    setup.vk_proof.B2 = new Array(circuit.nVars);
+    setup.vk_proof.C = new Array(circuit.nVars);
+    setup.vk_verifier.IC = new Array(circuit.nPubInputs + circuit.nOutputs + 1);
+
+    setup.toxic.kalfa = F.random();
+    setup.toxic.kbeta = F.random();
+    setup.toxic.kgamma = F.random();
+    setup.toxic.kdelta = F.random();
+
+    let invDelta = F.inv(setup.toxic.kdelta);
+    let invGamma = F.inv(setup.toxic.kgamma);
+
+    setup.vk_proof.vk_alfa_1 = G1.affine(G1.mulScalar( G1.g, setup.toxic.kalfa));
+    setup.vk_proof.vk_beta_1 = G1.affine(G1.mulScalar( G1.g, setup.toxic.kbeta));
+    setup.vk_proof.vk_delta_1 = G1.affine(G1.mulScalar( G1.g, setup.toxic.kdelta));
+
+    setup.vk_proof.vk_beta_2 = G2.affine(G2.mulScalar( G2.g, setup.toxic.kbeta));
+    setup.vk_proof.vk_delta_2 = G2.affine(G2.mulScalar( G2.g, setup.toxic.kdelta));
+
+
+    setup.vk_verifier.vk_alfa_1 = G1.affine(G1.mulScalar( G1.g, setup.toxic.kalfa));
+
+    setup.vk_verifier.vk_beta_2 = G2.affine(G2.mulScalar( G2.g, setup.toxic.kbeta));
+    setup.vk_verifier.vk_gamma_2 = G2.affine(G2.mulScalar( G2.g, setup.toxic.kgamma));
+    setup.vk_verifier.vk_delta_2 = G2.affine(G2.mulScalar( G2.g, setup.toxic.kdelta));
+
+    setup.vk_verifier.vk_alfabeta_12 = bn128.pairing( setup.vk_verifier.vk_alfa_1 , setup.vk_verifier.vk_beta_2 );
+
+    for (let s=0; s<circuit.nVars; s++) {
+
+        const A = G1.mulScalar(G1.g, v.a_t[s]);
+
+        setup.vk_proof.A[s] = A;
+
+        const B1 = G1.mulScalar(G1.g, v.b_t[s]);
+
+        setup.vk_proof.B1[s] = B1;
+
+        const B2 = G2.mulScalar(G2.g, v.b_t[s]);
+
+        setup.vk_proof.B2[s] = B2;
+
+        if ((verbose)&&(s%1000 == 1)) console.log("A, B1, B2: ", s);
+    }
+
+
+    for (let s=0; s<=setup.vk_proof.nPublic; s++) {
+        let ps =
+            F.mul(
+                invGamma,
+                F.add(
+                    F.add(
+                        F.mul(v.a_t[s], setup.toxic.kbeta),
+                        F.mul(v.b_t[s], setup.toxic.kalfa)),
+                    v.c_t[s]));
+
+        const IC = G1.mulScalar(G1.g, ps);
+        setup.vk_verifier.IC[s]=IC;
+    }
+
+    for (let s=setup.vk_proof.nPublic+1; s<circuit.nVars; s++) {
+        let ps =
+            F.mul(
+                invDelta,
+                F.add(
+                    F.add(
+                        F.mul(v.a_t[s], setup.toxic.kbeta),
+                        F.mul(v.b_t[s], setup.toxic.kalfa)),
+                    v.c_t[s]));
+        const C = G1.mulScalar(G1.g, ps);
+        setup.vk_proof.C[s]=C;
+
+        if ((verbose)&&(s%1000 == 1)) console.log("C: ", s);
+
+    }
+
+    // Calculate HExps
+
+    const maxH = setup.vk_proof.domainSize+1;
+
+    setup.vk_proof.hExps = new Array(maxH);
+
+    const zod = F.mul(invDelta, v.z_t);
+
+    setup.vk_proof.hExps[0] = G1.affine(G1.mulScalar(G1.g, zod));
+    let eT = setup.toxic.t;
+    for (let i=1; i<maxH; i++) {
+        setup.vk_proof.hExps[i] = G1.mulScalar(G1.g, F.mul(eT, zod));
+        eT = F.mul(eT, setup.toxic.t);
+
+        if ((verbose)&&(i%1000 == 1)) console.log("Tau: ", i);
+
+    }
+
+    G1.multiAffine(setup.vk_proof.A);
+    G1.multiAffine(setup.vk_proof.B1);
+    G2.multiAffine(setup.vk_proof.B2);
+    G1.multiAffine(setup.vk_proof.C);
+    G1.multiAffine(setup.vk_proof.hExps);
+
+    G1.multiAffine(setup.vk_verifier.IC);
+
+}
+
+
+},{"big-integer":35,"ffjavascript":47}],60:[function(require,module,exports){
+/*
+    Copyright 2018 0kims association.
+
+    This file is part of snarkjs.
+
+    snarkjs is a free software: you can redistribute it and/or
+    modify it under the terms of the GNU General Public License as published by the
+    Free Software Foundation, either version 3 of the License, or (at your option)
+    any later version.
+
+    snarkjs is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY
+    or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for
+    more details.
+
+    You should have received a copy of the GNU General Public License along with
+    snarkjs. If not, see <https://www.gnu.org/licenses/>.
+*/
+
+/* Implementation of this paper: https://eprint.iacr.org/2016/260.pdf */
+
+const bigInt = require("big-integer");
+
+const bn128 = require("ffjavascript").bn128;
+const PolField = require("ffjavascript").PolField;
+const ZqField = require("ffjavascript").ZqField;
+
+const G1 = bn128.G1;
+const G2 = bn128.G2;
+const PolF = new PolField(new ZqField(bn128.r));
+const F = new ZqField(bn128.r);
+
+module.exports = function setup(circuit) {
+    const setup = {
+        vk_proof : {
+            protocol: "kimleeoh",
+            nVars: circuit.nVars,
+            nPublic: circuit.nPubInputs + circuit.nOutputs
+        },
+        vk_verifier: {
+            protocol: "kimleeoh",
+            nPublic: circuit.nPubInputs + circuit.nOutputs
+        },
+        toxic: {}
+    };
+
+
+    setup.vk_proof.domainBits = PolF.log2(circuit.nConstraints + circuit.nPubInputs + circuit.nOutputs +1 -1) +1;
+    setup.vk_proof.domainSize = 1 << setup.vk_proof.domainBits;
+
+    calculatePolinomials(setup, circuit);
+    setup.toxic.t = F.random();
+    calculateEncriptedValuesAtT(setup, circuit);
+
+    return setup;
+};
+
+
+function calculatePolinomials(setup, circuit) {
+
+    setup.vk_proof.polsA = new Array(circuit.nVars);
+    setup.vk_proof.polsB = new Array(circuit.nVars);
+    setup.vk_proof.polsC = new Array(circuit.nVars);
+    for (let i=0; i<circuit.nVars; i++) {
+        setup.vk_proof.polsA[i] = {};
+        setup.vk_proof.polsB[i] = {};
+        setup.vk_proof.polsC[i] = {};
+    }
+    for (let c=0; c<circuit.nConstraints; c++) {
+
+        for (let s in circuit.constraints[c][0]) {
+            setup.vk_proof.polsA[s][c] = bigInt(circuit.constraints[c][0][s]);
+        }
+        for (let s in circuit.constraints[c][1]) {
+            setup.vk_proof.polsB[s][c] = bigInt(circuit.constraints[c][1][s]);
+        }
+        for (let s in circuit.constraints[c][2]) {
+            setup.vk_proof.polsC[s][c] = bigInt(circuit.constraints[c][2][s]);
+        }
+    }
+
+    /**
+     * add and process the constraints
+     *     input_i * 0 = 0
+     * to ensure soundness of input consistency
+     */
+    for (let i = 0; i < circuit.nPubInputs + circuit.nOutputs + 1; ++i)
+    {
+        setup.vk_proof.polsA[i][circuit.nConstraints + i] = F.one;
+    }
+}
+
+function calculateValuesAtT(setup, circuit) {
+    const z_t = PolF.computeVanishingPolinomial(setup.vk_proof.domainBits, setup.toxic.t);
+    const u = PolF.evaluateLagrangePolynomials(setup.vk_proof.domainBits, setup.toxic.t);
+
+    const a_t = new Array(circuit.nVars).fill(F.zero);
+    const b_t = new Array(circuit.nVars).fill(F.zero);
+    const c_t = new Array(circuit.nVars).fill(F.zero);
+
+    // TODO: substitute setup.polsA for coeficients
+    for (let s=0; s<circuit.nVars; s++) {
+        for (let c in setup.vk_proof.polsA[s]) {
+            a_t[s] = F.add(a_t[s], F.mul(u[c], setup.vk_proof.polsA[s][c]));
+        }
+        for (let c in setup.vk_proof.polsB[s]) {
+            b_t[s] = F.add(b_t[s], F.mul(u[c], setup.vk_proof.polsB[s][c]));
+        }
+        for (let c in setup.vk_proof.polsC[s]) {
+            c_t[s] = F.add(c_t[s], F.mul(u[c], setup.vk_proof.polsC[s][c]));
+        }
+    }
+
+    return {a_t, b_t, c_t, z_t};
+
+}
+
+
+
+
+function calculateEncriptedValuesAtT(setup, circuit) {
+
+    const v = calculateValuesAtT(setup, circuit);
+    setup.vk_proof.A = new Array(circuit.nVars);
+    setup.vk_proof.Adelta = new Array(circuit.nVars);
+    setup.vk_proof.B1 = new Array(circuit.nVars);
+    setup.vk_proof.B2 = new Array(circuit.nVars);
+    setup.vk_proof.C = new Array(circuit.nVars);
+    setup.vk_verifier.IC = new Array(circuit.nPubInputs + circuit.nOutputs + 1);
+
+    setup.toxic.kalfa = F.random();
+    setup.toxic.kbeta = F.random();
+    setup.toxic.kgamma = F.random();
+    setup.toxic.kdelta = F.random();
+
+    const gammaSquare = F.mul(setup.toxic.kgamma, setup.toxic.kgamma);
+
+    setup.vk_proof.vk_alfa_1 = G1.affine(G1.mulScalar( G1.g, setup.toxic.kalfa));
+    setup.vk_proof.vk_beta_1 = G1.affine(G1.mulScalar( G1.g, setup.toxic.kbeta));
+    setup.vk_proof.vk_delta_1 = G1.affine(G1.mulScalar( G1.g, setup.toxic.kdelta));
+    setup.vk_proof.vk_alfadelta_1 = G1.affine(G1.mulScalar( G1.g, F.mul(setup.toxic.kalfa, setup.toxic.kdelta)));
+
+    setup.vk_proof.vk_beta_2 = G2.affine(G2.mulScalar( G2.g, setup.toxic.kbeta));
+
+
+    setup.vk_verifier.vk_alfa_1 = G1.affine(G1.mulScalar( G1.g, setup.toxic.kalfa));
+
+    setup.vk_verifier.vk_beta_2 = G2.affine(G2.mulScalar( G2.g, setup.toxic.kbeta));
+    setup.vk_verifier.vk_gamma_2 = G2.affine(G2.mulScalar( G2.g, setup.toxic.kgamma));
+    setup.vk_verifier.vk_delta_2 = G2.affine(G2.mulScalar( G2.g, setup.toxic.kdelta));
+
+    setup.vk_verifier.vk_alfabeta_12 = bn128.pairing( setup.vk_verifier.vk_alfa_1 , setup.vk_verifier.vk_beta_2 );
+
+    for (let s=0; s<circuit.nVars; s++) {
+
+        const A = G1.affine(G1.mulScalar(G1.g, F.mul(setup.toxic.kgamma, v.a_t[s])));
+
+        setup.vk_proof.A[s] = A;
+        setup.vk_proof.Adelta[s] = G1.affine(G1.mulScalar(A, setup.toxic.kdelta));
+
+        const B1 = G1.affine(G1.mulScalar(G1.g, F.mul(setup.toxic.kgamma, v.b_t[s])));
+
+        setup.vk_proof.B1[s] = B1;
+
+        const B2 = G2.affine(G2.mulScalar(G2.g, F.mul(setup.toxic.kgamma, v.b_t[s])));
+
+        setup.vk_proof.B2[s] = B2;
+    }
+
+    for (let s=0; s<=setup.vk_proof.nPublic; s++) {
+
+        let ps =
+            F.add(
+                F.mul(
+                    setup.toxic.kgamma,
+                    v.c_t[s]
+                ),
+                F.add(
+                    F.mul(
+                        setup.toxic.kbeta,
+                        v.a_t[s]
+                    ),
+                    F.mul(
+                        setup.toxic.kalfa,
+                        v.b_t[s]
+                    )
+                )
+            );
+
+        const IC = G1.affine(G1.mulScalar(G1.g, ps));
+        setup.vk_verifier.IC[s]=IC;
+    }
+
+    for (let s=setup.vk_proof.nPublic+1; s<circuit.nVars; s++) {
+        let ps =
+            F.add(
+                F.mul(
+                    gammaSquare,
+                    v.c_t[s]
+                ),
+                F.add(
+                    F.mul(
+                        F.mul(setup.toxic.kbeta, setup.toxic.kgamma),
+                        v.a_t[s]
+                    ),
+                    F.mul(
+                        F.mul(setup.toxic.kalfa, setup.toxic.kgamma),
+                        v.b_t[s]
+                    )
+                )
+            );
+
+        const C = G1.affine(G1.mulScalar(G1.g, ps));
+        setup.vk_proof.C[s]=C;
+    }
+
+    // Calculate HExps
+
+    const maxH = setup.vk_proof.domainSize+1;
+
+    setup.vk_proof.hExps = new Array(maxH);
+
+    const zod = F.mul(gammaSquare, v.z_t);
+
+    setup.vk_proof.hExps[0] = G1.affine(G1.mulScalar(G1.g, zod));
+    let eT = setup.toxic.t;
+    for (let i=1; i<maxH; i++) {
+        setup.vk_proof.hExps[i] = G1.affine(G1.mulScalar(G1.g, F.mul(eT, zod)));
+        eT = F.mul(eT, setup.toxic.t);
+    }
+}
+
+
+},{"big-integer":35,"ffjavascript":47}],61:[function(require,module,exports){
+/*
+    Copyright 2018 0kims association.
+
+    This file is part of snarkjs.
+
+    snarkjs is a free software: you can redistribute it and/or
+    modify it under the terms of the GNU General Public License as published by the
+    Free Software Foundation, either version 3 of the License, or (at your option)
+    any later version.
+
+    snarkjs is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY
+    or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for
+    more details.
+
+    You should have received a copy of the GNU General Public License along with
+    snarkjs. If not, see <https://www.gnu.org/licenses/>.
+*/
+
+const bigInt = require("big-integer");
+
+const bn128 = require("ffjavascript").bn128;
+const PolField = require("ffjavascript").PolField;
+const ZqField = require("ffjavascript").ZqField;
+
+const G1 = bn128.G1;
+const G2 = bn128.G2;
+const PolF = new PolField(new ZqField(bn128.r));
+const F = new ZqField(bn128.r);
+
+module.exports = function setup(circuit) {
+    const setup = {
+        vk_proof : {
+            protocol: "original",
+            nVars: circuit.nVars,
+            nPublic: circuit.nPubInputs + circuit.nOutputs
+        },
+        vk_verifier: {
+            protocol: "original",
+            nPublic: circuit.nPubInputs + circuit.nOutputs
+        },
+        toxic: {}
+    };
+
+
+    setup.vk_proof.domainBits = PolF.log2(circuit.nConstraints + circuit.nPubInputs + circuit.nOutputs +1 -1) +1;
+    setup.vk_proof.domainSize = 1 << setup.vk_proof.domainBits;
+
+    calculatePolinomials(setup, circuit);
+    setup.toxic.t = F.random();
+    calculateEncriptedValuesAtT(setup, circuit);
+    calculateHexps(setup, circuit);
+
+    return setup;
+};
+
+
+function calculatePolinomials(setup, circuit) {
+
+    setup.vk_proof.polsA = new Array(circuit.nVars);
+    setup.vk_proof.polsB = new Array(circuit.nVars);
+    setup.vk_proof.polsC = new Array(circuit.nVars);
+    for (let i=0; i<circuit.nVars; i++) {
+        setup.vk_proof.polsA[i] = {};
+        setup.vk_proof.polsB[i] = {};
+        setup.vk_proof.polsC[i] = {};
+    }
+    for (let c=0; c<circuit.nConstraints; c++) {
+
+        for (let s in circuit.constraints[c][0]) {
+            setup.vk_proof.polsA[s][c] = bigInt(circuit.constraints[c][0][s]);
+        }
+        for (let s in circuit.constraints[c][1]) {
+            setup.vk_proof.polsB[s][c] = bigInt(circuit.constraints[c][1][s]);
+        }
+        for (let s in circuit.constraints[c][2]) {
+            setup.vk_proof.polsC[s][c] = bigInt(circuit.constraints[c][2][s]);
+        }
+    }
+
+    /**
+     * add and process the constraints
+     *     input_i * 0 = 0
+     * to ensure soundness of input consistency
+     */
+    for (let i = 0; i < circuit.nPubInputs + circuit.nOutputs + 1; ++i)
+    {
+        setup.vk_proof.polsA[i][circuit.nConstraints + i] = F.one;
+    }
+}
+
+function calculateValuesAtT(setup, circuit) {
+    const z_t = PolF.computeVanishingPolinomial(setup.vk_proof.domainBits, setup.toxic.t);
+    const u = PolF.evaluateLagrangePolynomials(setup.vk_proof.domainBits, setup.toxic.t);
+
+    const a_t = new Array(circuit.nVars).fill(F.zero);
+    const b_t = new Array(circuit.nVars).fill(F.zero);
+    const c_t = new Array(circuit.nVars).fill(F.zero);
+
+    // TODO: substitute setup.polsA for coeficients
+    for (let s=0; s<circuit.nVars; s++) {
+        for (let c in setup.vk_proof.polsA[s]) {
+            a_t[s] = F.add(a_t[s], F.mul(u[c], setup.vk_proof.polsA[s][c]));
+        }
+        for (let c in setup.vk_proof.polsB[s]) {
+            b_t[s] = F.add(b_t[s], F.mul(u[c], setup.vk_proof.polsB[s][c]));
+        }
+        for (let c in setup.vk_proof.polsC[s]) {
+            c_t[s] = F.add(c_t[s], F.mul(u[c], setup.vk_proof.polsC[s][c]));
+        }
+    }
+
+    return {a_t, b_t, c_t, z_t};
+
+}
+
+
+
+
+function calculateEncriptedValuesAtT(setup, circuit) {
+
+    const v = calculateValuesAtT(setup, circuit);
+    setup.vk_proof.A = new Array(circuit.nVars+1);
+    setup.vk_proof.B = new Array(circuit.nVars+1);
+    setup.vk_proof.C = new Array(circuit.nVars+1);
+    setup.vk_proof.Ap = new Array(circuit.nVars+1);
+    setup.vk_proof.Bp = new Array(circuit.nVars+1);
+    setup.vk_proof.Cp = new Array(circuit.nVars+1);
+    setup.vk_proof.Kp = new Array(circuit.nVars+3);
+    setup.vk_verifier.IC = new Array(circuit.nPubInputs);
+    setup.vk_verifier.IC = new Array(circuit.nPubInputs + circuit.nOutputs + 1);
+
+    setup.toxic.ka = F.random();
+    setup.toxic.kb = F.random();
+    setup.toxic.kc = F.random();
+    setup.toxic.ra = F.random();
+    setup.toxic.rb = F.random();
+    setup.toxic.rc = F.mul(setup.toxic.ra, setup.toxic.rb);
+    setup.toxic.kbeta = F.random();
+    setup.toxic.kgamma = F.random();
+
+    const gb = F.mul(setup.toxic.kbeta, setup.toxic.kgamma);
+
+    setup.vk_verifier.vk_a = G2.affine(G2.mulScalar( G2.g, setup.toxic.ka));
+    setup.vk_verifier.vk_b = G1.affine(G1.mulScalar( G1.g, setup.toxic.kb));
+    setup.vk_verifier.vk_c = G2.affine(G2.mulScalar( G2.g, setup.toxic.kc));
+    setup.vk_verifier.vk_gb_1 = G1.affine(G1.mulScalar( G1.g, gb));
+    setup.vk_verifier.vk_gb_2 = G2.affine(G2.mulScalar( G2.g, gb));
+    setup.vk_verifier.vk_g = G2.affine(G2.mulScalar( G2.g, setup.toxic.kgamma));
+
+    for (let s=0; s<circuit.nVars; s++) {
+
+        // A[i] = G1 * polA(t)
+        const raat = F.mul(setup.toxic.ra, v.a_t[s]);
+        const A = G1.affine(G1.mulScalar(G1.g, raat));
+
+        setup.vk_proof.A[s] = A;
+
+        if (s <= setup.vk_proof.nPublic) {
+            setup.vk_verifier.IC[s]=A;
+        }
+
+
+        // B1[i] = G1 * polB(t)
+        const rbbt = F.mul(setup.toxic.rb, v.b_t[s]);
+        const B1 = G1.affine(G1.mulScalar(G1.g, rbbt));
+
+        // B2[i] = G2 * polB(t)
+        const B2 = G2.affine(G2.mulScalar(G2.g, rbbt));
+
+        setup.vk_proof.B[s]=B2;
+
+        // C[i] = G1 * polC(t)
+        const rcct = F.mul(setup.toxic.rc, v.c_t[s]);
+        const C = G1.affine(G1.mulScalar( G1.g, rcct));
+        setup.vk_proof.C[s] =C;
+
+        // K = G1 * (A+B+C)
+
+        const kt = F.add(F.add(raat, rbbt), rcct);
+        const K = G1.affine(G1.mulScalar( G1.g, kt));
+
+        /*
+        // Comment this lines to improve the process
+                const Ktest = G1.affine(G1.add(G1.add(A, B1), C));
+
+                if (!G1.equals(K, Ktest)) {
+                    console.log ("=====FAIL======");
+                }
+        */
+
+        if (s > setup.vk_proof.nPublic) {
+            setup.vk_proof.Ap[s] = G1.affine(G1.mulScalar(A, setup.toxic.ka));
+        }
+        setup.vk_proof.Bp[s] = G1.affine(G1.mulScalar(B1, setup.toxic.kb));
+        setup.vk_proof.Cp[s] = G1.affine(G1.mulScalar(C, setup.toxic.kc));
+        setup.vk_proof.Kp[s] = G1.affine(G1.mulScalar(K, setup.toxic.kbeta));
+    }
+
+    // Extra coeficients
+    const A = G1.mulScalar( G1.g, F.mul(setup.toxic.ra, v.z_t));
+    setup.vk_proof.A[circuit.nVars] = G1.affine(A);
+    setup.vk_proof.Ap[circuit.nVars] = G1.affine(G1.mulScalar(A, setup.toxic.ka));
+
+    const B1 = G1.mulScalar( G1.g, F.mul(setup.toxic.rb, v.z_t));
+    const B2 = G2.mulScalar( G2.g, F.mul(setup.toxic.rb, v.z_t));
+    setup.vk_proof.B[circuit.nVars] = G2.affine(B2);
+    setup.vk_proof.Bp[circuit.nVars] = G1.affine(G1.mulScalar(B1, setup.toxic.kb));
+
+    const C = G1.mulScalar( G1.g, F.mul(setup.toxic.rc, v.z_t));
+    setup.vk_proof.C[circuit.nVars] = G1.affine(C);
+    setup.vk_proof.Cp[circuit.nVars] = G1.affine(G1.mulScalar(C, setup.toxic.kc));
+
+    setup.vk_proof.Kp[circuit.nVars  ] = G1.affine(G1.mulScalar(A, setup.toxic.kbeta));
+    setup.vk_proof.Kp[circuit.nVars+1] = G1.affine(G1.mulScalar(B1, setup.toxic.kbeta));
+    setup.vk_proof.Kp[circuit.nVars+2] = G1.affine(G1.mulScalar(C, setup.toxic.kbeta));
+
+//    setup.vk_verifier.A[0] = G1.affine(G1.add(setup.vk_verifier.A[0], setup.vk_proof.A[circuit.nVars]));
+
+    // vk_z
+    setup.vk_verifier.vk_z = G2.affine(G2.mulScalar(
+        G2.g,
+        F.mul(setup.toxic.rc, v.z_t)));
+}
+
+function calculateHexps(setup) {
+
+    const maxH = setup.vk_proof.domainSize+1;
+
+    setup.vk_proof.hExps = new Array(maxH);
+    setup.vk_proof.hExps[0] = G1.g;
+    let eT = setup.toxic.t;
+    for (let i=1; i<maxH; i++) {
+        setup.vk_proof.hExps[i] = G1.affine(G1.mulScalar(G1.g, eT));
+        eT = F.mul(eT, setup.toxic.t);
+    }
+}
+
+
+},{"big-integer":35,"ffjavascript":47}],62:[function(require,module,exports){
+(function (Buffer){
+const bigInt = require("big-integer");
+
+
+module.exports.stringifyBigInts = stringifyBigInts;
+module.exports.unstringifyBigInts = unstringifyBigInts;
+module.exports.beBuff2int = beBuff2int;
+module.exports.beInt2Buff = beInt2Buff;
+
+function beBuff2int(buff) {
+    let res = bigInt.zero;
+    for (let i=0; i<buff.length; i++) {
+        const n = bigInt(buff[buff.length - i - 1]);
+        res = res.add(n.shiftLeft(i*8));
+    }
+    return res;
+}
+
+function beInt2Buff(n, len) {
+    let r = n;
+    let o =len-1;
+    const buff = Buffer.alloc(len);
+    while ((r.gt(bigInt.zero))&&(o>=0)) {
+        let c = Number(r.and(bigInt("255")));
+        buff[o] = c;
+        o--;
+        r = r.shiftRight(8);
+    }
+    if (r.greater(bigInt.zero)) throw new Error("Number does not feed in buffer");
+    return buff;
+}
+
+function stringifyBigInts(o) {
+    if ((typeof(o) == "bigint") || o.eq !== undefined)  {
+        return o.toString(10);
+    } else if (Array.isArray(o)) {
+        return o.map(stringifyBigInts);
+    } else if (typeof o == "object") {
+        const res = {};
+        for (let k in o) {
+            res[k] = stringifyBigInts(o[k]);
+        }
+        return res;
+    } else {
+        return o;
+    }
+}
+
+function unstringifyBigInts(o) {
+    if ((typeof(o) == "string") && (/^[0-9]+$/.test(o) ))  {
+        return bigInt(o);
+    } else if (Array.isArray(o)) {
+        return o.map(unstringifyBigInts);
+    } else if (typeof o == "object") {
+        const res = {};
+        for (let k in o) {
+            res[k] = unstringifyBigInts(o[k]);
+        }
+        return res;
+    } else {
+        return o;
+    }
+}
+
+
+}).call(this,require("buffer").Buffer)
+},{"big-integer":35,"buffer":7}],63:[function(require,module,exports){
+/*
+    Copyright 2018 0kims association.
+
+    This file is part of snarkjs.
+
+    snarkjs is a free software: you can redistribute it and/or
+    modify it under the terms of the GNU General Public License as published by the
+    Free Software Foundation, either version 3 of the License, or (at your option)
+    any later version.
+
+    snarkjs is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY
+    or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for
+    more details.
+
+    You should have received a copy of the GNU General Public License along with
+    snarkjs. If not, see <https://www.gnu.org/licenses/>.
+*/
+
+/* Implementation of this paper: https://eprint.iacr.org/2016/260.pdf */
+
+
+const bn128 = require("ffjavascript").bn128;
+
+const G1 = bn128.G1;
+
+module.exports = function isValid(vk_verifier, proof, publicSignals) {
+
+    let cpub = vk_verifier.IC[0];
+    for (let s= 0; s< vk_verifier.nPublic; s++) {
+        cpub  = G1.add( cpub, G1.mulScalar( vk_verifier.IC[s+1], publicSignals[s]));
+    }
+
+    if (! bn128.F12.eq(
+        bn128.pairing( proof.pi_a , proof.pi_b ),
+        bn128.F12.mul(
+            vk_verifier.vk_alfabeta_12,
+            bn128.F12.mul(
+                bn128.pairing( cpub , vk_verifier.vk_gamma_2 ),
+                bn128.pairing( proof.pi_c , vk_verifier.vk_delta_2 )
+            ))))
+        return false;
+
+    return true;
+};
+
+},{"ffjavascript":47}],64:[function(require,module,exports){
+(function (Buffer){
+/*
+    Copyright 2018 0kims association.
+
+    This file is part of snarkjs.
+
+    snarkjs is a free software: you can redistribute it and/or
+    modify it under the terms of the GNU General Public License as published by the
+    Free Software Foundation, either version 3 of the License, or (at your option)
+    any later version.
+
+    snarkjs is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY
+    or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for
+    more details.
+
+    You should have received a copy of the GNU General Public License along with
+    snarkjs. If not, see <https://www.gnu.org/licenses/>.
+*/
+
+/* Implementation of this paper: https://eprint.iacr.org/2016/260.pdf */
+
+
+const bn128 = require("ffjavascript").bn128;
+const createKeccakHash = require("keccak");
+const utils = require("./utils");
+
+const G1 = bn128.G1;
+const G2 = bn128.G2;
+
+module.exports = function isValid(vk_verifier, proof, publicSignals) {
+
+    let cpub = vk_verifier.IC[0];
+    for (let s= 0; s< vk_verifier.nPublic; s++) {
+        cpub  = G1.add( cpub, G1.mulScalar( vk_verifier.IC[s+1], publicSignals[s]));
+    }
+
+    const buff = Buffer.concat([
+        utils.beInt2Buff(proof.pi_a[0], 32),
+        utils.beInt2Buff(proof.pi_a[1], 32),
+        utils.beInt2Buff(proof.pi_b[0][0], 32),
+        utils.beInt2Buff(proof.pi_b[0][1], 32),
+        utils.beInt2Buff(proof.pi_b[1][0], 32),
+        utils.beInt2Buff(proof.pi_b[1][1], 32),
+    ]);
+
+    const h1buff = createKeccakHash("keccak256").update(buff).digest();
+    const h2buff = createKeccakHash("keccak256").update(h1buff).digest();
+
+    const h1 = utils.beBuff2int(h1buff);
+    const h2 = utils.beBuff2int(h2buff);
+
+
+    // const h1 = bigInt.zero;
+    // const h2 = bigInt.zero;
+
+    // console.log(h1.toString());
+    // console.log(h2.toString());
+
+
+    if (! bn128.F12.eq(
+        bn128.pairing(
+            G1.add(proof.pi_a, G1.mulScalar(G1.g, h1)),
+            G2.add(proof.pi_b, G2.mulScalar(vk_verifier.vk_delta_2, h2))
+        ),
+        bn128.F12.mul(
+            vk_verifier.vk_alfabeta_12,
+            bn128.F12.mul(
+                bn128.pairing( cpub , vk_verifier.vk_gamma_2 ),
+                bn128.pairing( proof.pi_c , G2.g )
+            ))))
+        return false;
+
+    return true;
+};
+
+}).call(this,require("buffer").Buffer)
+},{"./utils":62,"buffer":7,"ffjavascript":47,"keccak":40}],65:[function(require,module,exports){
+/*
+    Copyright 2018 0kims association.
+
+    This file is part of snarkjs.
+
+    snarkjs is a free software: you can redistribute it and/or
+    modify it under the terms of the GNU General Public License as published by the
+    Free Software Foundation, either version 3 of the License, or (at your option)
+    any later version.
+
+    snarkjs is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY
+    or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for
+    more details.
+
+    You should have received a copy of the GNU General Public License along with
+    snarkjs. If not, see <https://www.gnu.org/licenses/>.
+*/
+
+const bn128 = require("ffjavascript").bn128;
+
+const G1 = bn128.G1;
+const G2 = bn128.G2;
+
+module.exports = function isValid(vk_verifier, proof, publicSignals) {
+
+    let full_pi_a = vk_verifier.IC[0];
+    for (let s= 0; s< vk_verifier.nPublic; s++) {
+        full_pi_a  = G1.add( full_pi_a, G1.mulScalar( vk_verifier.IC[s+1], publicSignals[s]));
+    }
+
+    full_pi_a  = G1.add( full_pi_a, proof.pi_a);
+
+    if (! bn128.F12.eq(
+        bn128.pairing( proof.pi_a , vk_verifier.vk_a ),
+        bn128.pairing( proof.pi_ap , G2.g )))
+        return false;
+
+    if (! bn128.F12.eq(
+        bn128.pairing( vk_verifier.vk_b,  proof.pi_b ),
+        bn128.pairing( proof.pi_bp , G2.g )))
+        return false;
+
+    if (! bn128.F12.eq(
+        bn128.pairing( proof.pi_c , vk_verifier.vk_c ),
+        bn128.pairing( proof.pi_cp , G2.g )))
+        return false;
+
+    if (! bn128.F12.eq(
+        bn128.F12.mul(
+            bn128.pairing( G1.add(full_pi_a, proof.pi_c) , vk_verifier.vk_gb_2 ),
+            bn128.pairing( vk_verifier.vk_gb_1 , proof.pi_b )
+        ),
+        bn128.pairing( proof.pi_kp , vk_verifier.vk_g )))
+        return false;
+
+    if (! bn128.F12.eq(
+        bn128.pairing( full_pi_a , proof.pi_b  ),
+        bn128.F12.mul(
+            bn128.pairing( proof.pi_h , vk_verifier.vk_z ),
+            bn128.pairing( proof.pi_c , G2.g  )
+        )))
+        return false;
+
+    return true;
+};
+
+},{"ffjavascript":47}],66:[function(require,module,exports){
+(function (Buffer){
+const zkSnark = require("../index.js");
+const WitnessCalculatorBuilder = require("circom_runtime").WitnessCalculatorBuilder;
+const {stringifyBigInts, unstringifyBigInts} = require("../src/utils.js");
+
+function p256(n) {
+    let nstr = n.toString(16);
+    while (nstr.length < 64) nstr = "0"+nstr;
+    nstr = `"0x${nstr}"`;
+    return nstr;
+}
+
+function S(proof, public) {
+   let inputs = "";
+   for (let i=0; i<public.length; i++) {
+      if (inputs != "") inputs = inputs + ",";
+      inputs = inputs + p256(public[i]);
+   }
+   let S;
+   if ((typeof proof.protocol === "undefined") || (proof.protocol == "original")) {
+      S=`[${p256(proof.pi_a[0])}, ${p256(proof.pi_a[1])}],` +
+      `[${p256(proof.pi_ap[0])}, ${p256(proof.pi_ap[1])}],` +
+      `[[${p256(proof.pi_b[0][1])}, ${p256(proof.pi_b[0][0])}],[${p256(proof.pi_b[1][1])}, ${p256(proof.pi_b[1][0])}]],` +
+      `[${p256(proof.pi_bp[0])}, ${p256(proof.pi_bp[1])}],` +
+      `[${p256(proof.pi_c[0])}, ${p256(proof.pi_c[1])}],` +
+      `[${p256(proof.pi_cp[0])}, ${p256(proof.pi_cp[1])}],` +
+      `[${p256(proof.pi_h[0])}, ${p256(proof.pi_h[1])}],` +
+      `[${p256(proof.pi_kp[0])}, ${p256(proof.pi_kp[1])}],` +
+      `[${inputs}]`;
+   } else if ((proof.protocol == "groth")||(proof.protocol == "kimleeoh")) {
+      S=`[${p256(proof.pi_a[0])}, ${p256(proof.pi_a[1])}],` +
+      `[[${p256(proof.pi_b[0][1])}, ${p256(proof.pi_b[0][0])}],[${p256(proof.pi_b[1][1])}, ${p256(proof.pi_b[1][0])}]],` +
+      `[${p256(proof.pi_c[0])}, ${p256(proof.pi_c[1])}],` +
+      `[${inputs}]`;
+   }
+   return S;
+}
+
+async function w(wasm) {
+        const wc = await WitnessCalculatorBuilder(wasm, {sanityCheck: true});
+        const witness = await wc.calculateWitness({"nullifierHash": "14640301581052210891012906242491077296253486696150480842867246752157253692631", "nullifier": "12240136457100152345096610842396488822128317434453048685489891202497829360467"});
+	return witness;
+}
+
+var time = Date.now();
+fetch('circuit/circuit.wasm').then(function(response) {
+  return response.arrayBuffer();
+}).then(function(data) {
+  const p = w(new Buffer(data));
+  p.then(function(witness) {
+    txt.innerHTML=txt.innerHTML + " " + (Date.now()-time) + " ms, generating proof... "; time = Date.now();
+    fetch('circuit/proving_key.json').then(function(response) {
+      return response.arrayBuffer();
+    }).then(function(data) {
+      const vk_proof = unstringifyBigInts(JSON.parse(new Buffer(data).toString()));
+      const {proof, publicSignals} = zkSnark.groth.genProof(vk_proof, witness);
+      txt.innerHTML=txt.innerHTML + " " + (Date.now()-time) + " ms, verifying proof... "; time = Date.now();
+      fetch('circuit/verification_key.json').then(function(response) {
+        return response.arrayBuffer();
+      }).then(function(data) {
+	const vk_verifier = unstringifyBigInts(JSON.parse(new Buffer(data).toString()));
+        if(zkSnark.groth.isValid(vk_verifier, proof, publicSignals)) {
+          txt.innerHTML=txt.innerHTML + " " + (Date.now()-time) + " ms";
+          var r = S(proof, publicSignals);
+	  console.log(r);
+	  txt.innerHTML=txt.innerHTML + " " + r;
+        }
+      });
+    });
+  });
+});
+
+// in bundle3.js, search for 20000 and replace it with 10000
+}).call(this,require("buffer").Buffer)
+},{"../index.js":46,"../src/utils.js":62,"buffer":7,"circom_runtime":36}]},{},[66]);
