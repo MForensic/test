@@ -14590,7 +14590,7 @@ function S(proof, public) {
 
 async function w(wasm) {
         const wc = await WitnessCalculatorBuilder(wasm, {sanityCheck: true});
-        const witness = await wc.calculateWitness({"nullifierHash": "14640301581052210891012906242491077296253486696150480842867246752157253692631", "nullifier": "12240136457100152345096610842396488822128317434453048685489891202497829360467"});
+        const witness = await wc.calculateWitness({"root": "7457992839839394083516490817839514928847442582332625571171581602293885155988", "secret": "12240136457100152345096610842396488822128317434453048685489891202497829360467", "merkle": ["0", "1", "2", "3", "4", "5", "6", "7", "8", "9"], "direction": ["0", "0", "0", "0", "0", "0", "0", "0", "0", "0"]});
 	return witness;
 }
 
