@@ -53,13 +53,13 @@ try {
 		s = await contract.estimateGas.updateCurrentVersion(["0xcf9b51d69874c8c61b2ca2de5e63854917a1536c"], [], "2");
 		console.log(s.toString());
 		s = await contract.estimateGas.upgradeWallet(walletAddresses[0]);
-		console.log(s.toString());		
+		console.log(s.toString());
 	}	
 } catch(message) {
 	console.error(message);
 	logs += "<p>"+JSON.stringify(message)+"</p>";
-	document.write(logs);
 }
+document.write(logs);
 }
 
 test();
