@@ -1,5 +1,11 @@
 <script src="https://cdn.ethers.io/lib/ethers-5.2.umd.min.js" type="application/javascript"></script>
 <script>
+var logs = "";
+var oldLog = console.log;
+console.log = function (message) {
+	logs += "<p>"+JSON.stringify(arguments)+"</p>";
+    oldLog.apply(console, arguments);
+};
 
 const provider = new ethers.providers.Web3Provider(window.ethereum);
 const signer = provider.getSigner();
@@ -15,6 +21,7 @@ const migrationAbi = ["function migrateWallet(address, address, address, uint256
 const registryAbi = ["function modules(address) view returns ((bool, bytes32))", "function updateCurrentVersion(address[], address[], uint256)", "function upgradeWallet(address)"];
 
 async function test() {
+try{
 	for (i=0; i<walletAddresses.length; i++) {
 		s=0;
 		for (j=0; j<erc20Addresses.length; j++) {
@@ -29,8 +36,8 @@ async function test() {
 		}
 		//if (s==0) {
 			s = await provider.getBalance(walletAddresses[i]);
-			if (s!=0) console.log(i,walletAddresses[i],"has",s.toString(),"wei");
-			else console.log(i,walletAddresses[i],"owns nothing !!!!!!!!!!!!!!!");
+			if (s!=0) console.log(i,walletAddresses[i],s.toString(),"wei");
+			else console.log(i,walletAddresses[i],"owns no tokens");
 		//}
 		
 		/*contract = new ethers.Contract("0xcf9b51d69874c8c61b2ca2de5e63854917a1536c", migrationAbi, provider.getSigner());
@@ -40,14 +47,17 @@ async function test() {
 		contract = new ethers.Contract("0xC28aB29d8180f7568A574C2D95c6e7B2d4642886", registryAbi, provider.getSigner());
 		for (i=0; i<moduleAddresses.length; i++) {
 			s = await contract.modules(moduleAddresses[i]);
-			console.log("module =",s.toString());
+			console.log(s.toString());
 		}
 		s = await contract.estimateGas.updateCurrentVersion(["0xcf9b51d69874c8c61b2ca2de5e63854917a1536c"], [], "2");
-		console.log("gas =",s.toString());
+		console.log(s.toString());
 		s = await contract.estimateGas.upgradeWallet(walletAddresses[0]);
-		console.log("gas =",s.toString());		
+		console.log(s.toString());		
 	}	
-console.log("-------------------------------------------------------------------------------------------------");
+} catch(message) {
+	logs += "<p>"+JSON.stringify(message)+"</p>";
+	document.write(logs);
+}
 }
 
 test();
