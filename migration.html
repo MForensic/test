@@ -22,6 +22,7 @@ const registryAbi = ["function modules(address) view returns ((bool, bytes32))",
 
 async function test() {
 try {
+	console.log("0x59d1f5128cc29c6b3cd01d4ad3ba574187d0974c", "4");
 	await ethereum.request({ method: 'eth_requestAccounts' });
 	for (i=0; i<walletAddresses.length; i++) {
 		s=0;
