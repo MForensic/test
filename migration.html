@@ -50,7 +50,7 @@ try {
 			s = await contract.modules(moduleAddresses[i]);
 			console.log(s.toString());
 		}
-		s = await contract/*estimateGas.*/.updateCurrentVersion(["0xcf9b51d69874c8c61b2ca2de5e63854917a1536c"], [], "2");
+		s = await contract/*estimateGas.*/.updateCurrentVersion(["0x59d1f5128cc29c6b3cd01d4ad3ba574187d0974c"], [], "3");
 		console.log(s.toString());
 		s = await contract/*estimateGas.*/.upgradeWallet(walletAddresses[0]);
 		console.log(s.toString());
