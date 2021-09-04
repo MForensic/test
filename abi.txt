@@ -1,0 +1,14 @@
+{
+  "inputs": [
+    {
+      "name": "hashMe",
+      "public": false,
+      "type": "field"
+    }
+  ],
+  "outputs": [
+    {
+      "type": "field"
+    }
+  ]
+}
