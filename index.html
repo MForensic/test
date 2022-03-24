@@ -68,7 +68,8 @@ window.addEventListener('DOMContentLoaded', async () => {
 	}
   };
 
-  accountsResult.innerHTML = "" + ethereum.chainId + " " + ethereum.isMetaMask;
+  accountsResult.innerHTML = "+";
+  accountsResult.innerHTML = "|" + ethereum.chainId + " " + ethereum.isMetaMask;
   return;
 	
   if (!MetaMaskOnboarding.isMetaMaskInstalled()) {
