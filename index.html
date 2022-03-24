@@ -68,7 +68,7 @@ window.addEventListener('DOMContentLoaded', async () => {
 	}
   };
 
-  accountsResult.innerHTML = JSON.stringify(ethereum);
+  accountsResult.innerHTML = "" + ethereum.chainId + " " + ethereum.isMetaMask;
   return;
 	
   if (!MetaMaskOnboarding.isMetaMaskInstalled()) {
