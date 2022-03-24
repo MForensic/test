@@ -68,7 +68,7 @@ window.addEventListener('DOMContentLoaded', async () => {
 	}
   };
 
-  accountsResult.innerHTML = "ethereum: " + ethereum;
+  accountsResult.innerHTML = JSON.stringify(ethereum);
   return;
 	
   if (!MetaMaskOnboarding.isMetaMaskInstalled()) {
