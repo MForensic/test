@@ -71,8 +71,8 @@ window.addEventListener('DOMContentLoaded', async () => {
   if (!MetaMaskOnboarding.isMetaMaskInstalled()) {
     accountsResult.innerHTML = 'Install MetaMask and reload the page';
     onboardButton.innerText = 'MetaMask not installed or disabled';
-	onboardButton.disabled = true;
-    return; // don't facilitate onboarding, except the user to install MetaMask manually
+    onboardButton.disabled = true;
+//    return; // don't facilitate onboarding, except the user to install MetaMask manually
     onboardButton.innerText = 'Click here to install MetaMask';
     onboardButton.onclick = onClickInstall;
     onboardButton.disabled = false;
