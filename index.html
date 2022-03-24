@@ -68,6 +68,9 @@ window.addEventListener('DOMContentLoaded', async () => {
 	}
   };
 
+  accountsResult.innerHTML = "ethereum: " + ethereum;
+  return;
+	
   if (!MetaMaskOnboarding.isMetaMaskInstalled()) {
     accountsResult.innerHTML = 'Install MetaMask and reload the page';
     onboardButton.innerText = 'MetaMask not installed or disabled';
