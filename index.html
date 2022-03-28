@@ -90,7 +90,6 @@ buttonMetaMask.innerText = 'ethereum: ' + ethereum;
 	if (accountReady()) {
 	  var block = await provider.getBlockNumber();
 	  console.log("Block number:", block);
-	  messageMetaMask.innerHTML = 'block number: ' + block.toString();
 	  var bal = await provider.getBalance(accounts[0]);
 	  console.log("Balance of " + accounts[0] + ":", bal.toString());
 
@@ -113,6 +112,13 @@ buttonMetaMask.innerText = 'ethereum: ' + ethereum;
 	  console.log(events);
 	  */
 
+	  var msg = "Hello world";
+	  var sig = await provider.getSigner().signMessage(msg);
+	  console.log("Signature of", msg, sig);
+	  var addr = ethers.utils.verifyMessage(msg, sig);
+	  console.log(msg, "was signed by", addr);
+messageMetaMask.innerHTML = 'sig ' + sig + ' on ' + msg + ' created by ' + addr;
+		
 	  const abi = [
 	    "function m_fee_receiver() view returns (address)",
 	    "function withdrawFunds(uint256 amount)",
@@ -134,12 +140,6 @@ buttonMetaMask.innerText = 'ethereum: ' + ethereum;
 	    console.log("CoinWithdraw(", m_receiver, m_amount, m_free_assets, m_locked_assets, ")");
 	  });
 
-	  var msg = "Hello world";
-	  var sig = await provider.getSigner().signMessage(msg);
-	  console.log("Signature of", msg, sig);
-	  var addr = ethers.utils.verifyMessage(msg, sig);
-	  console.log(msg, "was signed by", addr);
-
 	  var tx = await provider.getSigner().sendTransaction({
 	    to: manager.address,
 	    value: ethers.utils.parseEther("10.0")
@@ -154,7 +154,7 @@ buttonMetaMask.innerText = 'ethereum: ' + ethereum;
 	}
 
   } else
-	  messageMetaMask.innerHTML = 'no ethereum: ' + ethereum + ', window.ethereum: ' + window.ethereum + ', window.web3:' + window.web3;
+	  //messageMetaMask.innerHTML = 'no ethereum: ' + ethereum + ', window.ethereum: ' + window.ethereum + ', window.web3:' + window.web3;
   
 });
 
