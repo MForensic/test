@@ -2,7 +2,7 @@
 
 <body>
 
-<button type="button" id="buttonMetaMask">Loading 1...</button>
+<button type="button" id="buttonMetaMask">Loading 2...</button>
 <p id="messageMetaMask"></p>
 
 <script src="./ethers.umd.min.js"></script>
@@ -58,6 +58,8 @@ window.addEventListener('DOMContentLoaded', async () => {
 	}
   };
 
+  buttonMetaMask.innerText = 'ethereum: ' + ethereum;
+  messageMetaMask.innerHTML = 'metamask: ' + ethereum.isMetaMask;
   if (ethereum && ethereum.isMetaMask) {
 	ethereum.on('accountsChanged', (newAccounts) => {
       accounts = newAccounts;
