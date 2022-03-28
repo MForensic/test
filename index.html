@@ -15,7 +15,7 @@ window.addEventListener('DOMContentLoaded', async () => {
   const buttonMetaMask = document.getElementById('buttonMetaMask');
   const messageMetaMask = document.getElementById('messageMetaMask');
   
-  const ethereum = await detectEthereumProvider();
+  const ethereum = await detectEthereumProvider({timeout: 6000});
   let provider;
   let accounts;
 
