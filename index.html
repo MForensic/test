@@ -2,10 +2,8 @@
 
 <body>
 
-<button type="button" id="onboardButton">Loading...</button>
-<p id="accountsResult"></p>
-
-<script src="./metamask-onboarding.bundle.js"></script>
+<button type="button" id="buttonMetaMask">Loading...</button>
+<p id="messageMetaMask"></p>
 
 <script src="./ethers.umd.min.js"></script>
 
@@ -13,74 +11,54 @@
 
 window.addEventListener('DOMContentLoaded', async () => {
 
-  const onboardButton = document.getElementById('onboardButton');
-  const accountsResult = document.getElementById('accountsResult');
+  const buttonMetaMask = document.getElementById('buttonMetaMask');
+  const messageMetaMask = document.getElementById('messageMetaMask');
   
   const { ethereum } = window;
-  const onboarding = new MetaMaskOnboarding(/*{forwarderOrigin: 'http://localhost:8080'}*/);
   let provider;
   let accounts;
 
-  const onClickInstall = () => {
-    onboardButton.innerText = 'Onboarding in progress';
-    onboardButton.disabled = true;
-    onboarding.startOnboarding();
-  };
-
   const onClickConnect = async () => {
-  	onboardButton.innerText = 'Connecting...';
-	onboardButton.disabled = true;
+  	buttonMetaMask.innerText = 'Connecting...';
+	buttonMetaMask.disabled = true;
 	if (!ethereum._state.initialized) {
-	  accountsResult.innerHTML = 'Reload the page';
+	  messageMetaMask.innerHTML = 'Reload the page';
 	  return; // or call location.reload(true) instead
 	}
 	const unlocked = await ethereum._metamask.isUnlocked();
 	if (!unlocked)
-	  accountsResult.innerHTML = 'Enter your password to unlock MetaMask';
+	  messageMetaMask.innerHTML = 'Enter your password to unlock MetaMask';
 	 else
-	  accountsResult.innerHTML = 'Select one or more accounts to connect';
+	  messageMetaMask.innerHTML = 'Select one or more accounts to connect';
     try {
       await ethereum.request({ method: 'eth_requestAccounts' });
 	  accountReady();	
     } catch (error) {
 	  if (error.code === 4001) {
-	    accountsResult.innerHTML = 'You refused to connect an account';
+	    messageMetaMask.innerHTML = 'You refused to connect an account';
 		accountReady();	
 	  } else
-	    accountsResult.innerHTML = 'Click the MetaMask icon to complete the pending action';
+	    messageMetaMask.innerHTML = 'Click the MetaMask icon to complete the pending action';
 	}
   };
 
   const accountReady = () => {
     if (!accounts || accounts.length === 0) {
-	  accountsResult.innerHTML = 'Click here to connect an account';
-      onboardButton.innerText = 'Connect';
-      onboardButton.onclick = onClickConnect;
-      onboardButton.disabled = false;
+	  messageMetaMask.innerHTML = 'Click here to connect an account';
+      buttonMetaMask.innerText = 'Connect';
+      buttonMetaMask.onclick = onClickConnect;
+      buttonMetaMask.disabled = false;
 	  return false;
     } else {
-	  accountsResult.innerHTML = accounts[0];
-	  onboardButton.innerText = 'Connected';
-	  onboardButton.disabled = true;
-	  onboarding.stopOnboarding();
+	  messageMetaMask.innerHTML = accounts[0];
+	  buttonMetaMask.innerText = 'Connected';
+	  buttonMetaMask.disabled = true;
 	  provider = new ethers.providers.Web3Provider(ethereum);
 	  return true;
 	}
   };
 
-  accountsResult.innerHTML = "+";
-  accountsResult.innerHTML = "|" + ethereum.chainId + " " + ethereum.isMetaMask;
-  return;
-	
-  if (!MetaMaskOnboarding.isMetaMaskInstalled()) {
-    accountsResult.innerHTML = 'Install MetaMask and reload the page';
-    onboardButton.innerText = 'MetaMask not installed or disabled';
-    onboardButton.disabled = true;
-//    return; // don't facilitate onboarding, except the user to install MetaMask manually
-    onboardButton.innerText = 'Click here to install MetaMask';
-    onboardButton.onclick = onClickInstall;
-    onboardButton.disabled = false;
-  } else if (ethereum && ethereum.isMetaMask) {
+  if (ethereum && ethereum.isMetaMask) {
 	ethereum.on('accountsChanged', (newAccounts) => {
       accounts = newAccounts;
       accountReady();
@@ -132,7 +110,7 @@ window.addEventListener('DOMContentLoaded', async () => {
 	    "event CoinWithdraw(address indexed m_receiver, uint256 m_amount, uint256 m_free_assets, uint256 m_locked_assets )",
 	  ];
 
-	  var manager = new ethers.Contract("0x9cAA84446144fb6FC5ae69Ec1c83211f64Eb0B0d", abi, provider);
+	  var manager = new ethers.Contract("0x20A8cA717B8Ca0a9d9be6c90b978BBA55D7cF7E4", abi, provider);
 	  manager = manager.connect(provider.getSigner());
 	
 	  var loob = await manager.m_fee_receiver();
@@ -145,6 +123,12 @@ window.addEventListener('DOMContentLoaded', async () => {
 	  manager.on("CoinWithdraw", (m_receiver, m_amount, m_free_assets, m_locked_assets, event) => {
 	    console.log("CoinWithdraw(", m_receiver, m_amount, m_free_assets, m_locked_assets, ")");
 	  });
+
+	  var msg = "Hello world";
+	  var sig = await provider.getSigner().signMessage(msg);
+	  console.log("Signature of", msg, sig);
+	  var addr = ethers.utils.verifyMessage(msg, sig);
+	  console.log(msg, "was signed by", addr);
 
 	  var tx = await provider.getSigner().sendTransaction({
 	    to: manager.address,
