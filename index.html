@@ -81,6 +81,7 @@ window.addEventListener('DOMContentLoaded', async () => {
 	if (accountReady()) {
 	  var block = await provider.getBlockNumber();
 	  console.log("Block number:", block);
+	  messageMetaMask.innerHTML = block.toString();
 	  var bal = await provider.getBalance(accounts[0]);
 	  console.log("Balance of " + accounts[0] + ":", bal.toString());
 
