@@ -8,7 +8,7 @@
 	
 <body>
 
-<button type="button" id="buttonMetaMask">Loading v12...</button>
+<button type="button" id="buttonMetaMask">Loading v13...</button>
 <p id="messageMetaMask"></p>
 
 <script src="https://unpkg.com/@metamask/detect-provider/dist/detect-provider.min.js"></script>
@@ -113,7 +113,7 @@ messageMetaMask.innerHTML = 'sig ' + sig + ' on ' + msg + ' created by ' + addr;
 	  console.log(Date.now());
 	  console.log(events);
 	  }
-	  else if (ethereum.networkVerion === '55555') { // Ganache Auction Manager transactions & events
+	  else if (ethereum.networkVersion === '55555') { // Ganache Auction Manager transactions & events
 
 	  const abi = [
 	    "function m_fee_receiver() view returns (address)",
