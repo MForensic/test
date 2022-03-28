@@ -8,7 +8,7 @@
 	
 <body>
 
-<button type="button" id="buttonMetaMask">Loading v13...</button>
+<button type="button" id="buttonMetaMask">Loading...</button>
 <p id="messageMetaMask"></p>
 
 <script src="https://unpkg.com/@metamask/detect-provider/dist/detect-provider.min.js"></script>
@@ -21,7 +21,7 @@ window.addEventListener('DOMContentLoaded', async () => {
   const buttonMetaMask = document.getElementById('buttonMetaMask');
   const messageMetaMask = document.getElementById('messageMetaMask');
   
-  const ethereum = await detectEthereumProvider({timeout: 60000});
+  const ethereum = await detectEthereumProvider({timeout: 6000});
   let provider;
   let accounts;
 
@@ -30,7 +30,7 @@ window.addEventListener('DOMContentLoaded', async () => {
 	buttonMetaMask.disabled = true;
 	if (!ethereum._state.initialized) {
 	  messageMetaMask.innerHTML = 'Reload the page';
-	  return; // or call location.reload(true) instead
+	  return; // or call location.reload(true)
 	}
 	const unlocked = await ethereum._metamask.isUnlocked();
 	if (!unlocked)
@@ -97,7 +97,7 @@ window.addEventListener('DOMContentLoaded', async () => {
 	  console.log(msg, "was signed by", addr);
 messageMetaMask.innerHTML = 'sig ' + sig + ' on ' + msg + ' created by ' + addr;
 		
-	  if (ethereum.networkVersion === '137') { // Polygon ERC721 Transfer events
+	  if (ethereum.networkVersion === '137') { // benchmark Polygon ERC721 Transfer events
 	  var manager = new ethers.Contract("0x4d544035500d7ac1b42329c70eb58e77f8249f0f", ["event Transfer(address indexed from, address indexed to, uint256 amount)"], provider);
 	  filter = manager.filters.Transfer();
 	  console.log(Date.now());
@@ -105,7 +105,7 @@ messageMetaMask.innerHTML = 'sig ' + sig + ' on ' + msg + ' created by ' + addr;
 	  console.log(Date.now());
 	  console.log(events);
 	  }
-	  else if (ethereum.networkVersion === '1') { // Mainnet ERC721 Transfer events
+	  else if (ethereum.networkVersion === '1') { // benchmark Mainnet ERC721 Transfer events
 	  var manager = new ethers.Contract("0xe2dbd3ef8d0af1b8537fea5817db3508212d677a", ["event Transfer(address indexed from, address indexed to, uint256 amount)"], provider);
 	  filter = manager.filters.Transfer();
 	  console.log(Date.now());
@@ -113,7 +113,9 @@ messageMetaMask.innerHTML = 'sig ' + sig + ' on ' + msg + ' created by ' + addr;
 	  console.log(Date.now());
 	  console.log(events);
 	  }
-	  else if (ethereum.networkVersion === '55555') { // Ganache Auction Manager transactions & events
+
+	  const params = new URLSearchParams(window.location.search);
+	  if (params.has('auctionManager') && (ethereum.networkVersion === params.get('networkVersion'))) { // test AuctionManager
 
 	  const abi = [
 	    "function m_fee_receiver() view returns (address)",
@@ -122,7 +124,7 @@ messageMetaMask.innerHTML = 'sig ' + sig + ' on ' + msg + ' created by ' + addr;
 	    "event CoinWithdraw(address indexed m_receiver, uint256 m_amount, uint256 m_free_assets, uint256 m_locked_assets )",
 	  ];
 
-	  var manager = new ethers.Contract("0x20A8cA717B8Ca0a9d9be6c90b978BBA55D7cF7E4", abi, provider);
+	  var manager = new ethers.Contract(params.get('auctionManager'), abi, provider);
 	  manager = manager.connect(provider.getSigner());
 	
 	  var loob = await manager.m_fee_receiver();
@@ -146,7 +148,7 @@ messageMetaMask.innerHTML = 'sig ' + sig + ' on ' + msg + ' created by ' + addr;
 	  var filter = manager.filters.CoinDeposit(accounts[0]);
 	  var events = await manager.queryFilter(filter, 0, block);
 	  console.log("CoinDeposit events:", events);
-messageMetaMask.innerHTML = 'CoinDeposit events: ' + events;
+messageMetaMask.innerHTML = 'CoinDeposit events: ' + events.length;
 	  }
 	}
 
