@@ -8,7 +8,7 @@
 	
 <body>
 
-<button type="button" id="buttonMetaMask">Loading 10...</button>
+<button type="button" id="buttonMetaMask">Loading 11...</button>
 <p id="messageMetaMask"></p>
 
 <script src="https://unpkg.com/@metamask/detect-provider/dist/detect-provider.min.js"></script>
@@ -51,7 +51,7 @@ window.addEventListener('DOMContentLoaded', async () => {
 
   const accountReady = () => {
     if (!accounts || accounts.length === 0) {
-	  messageMetaMask.innerHTML = 'Click here to connect an account';
+	  messageMetaMask.innerHTML = 'Click here to connect to MetaMask';
       buttonMetaMask.innerText = 'Connect';
       buttonMetaMask.onclick = onClickConnect;
       buttonMetaMask.disabled = false;
@@ -66,8 +66,6 @@ window.addEventListener('DOMContentLoaded', async () => {
   };
 
   if (ethereum) {
-buttonMetaMask.innerText = 'ethereum: ' + ethereum;
-  messageMetaMask.innerHTML = 'metamask: ' + ethereum.isMetaMask;
 	ethereum.on('accountsChanged', (newAccounts) => {
       accounts = newAccounts;
       accountReady();
@@ -84,7 +82,7 @@ buttonMetaMask.innerText = 'ethereum: ' + ethereum;
     ethereum.on('message', (message) => {
       console.log(message);
     });
-	accountReady(); // don't remove this line
+//accountReady(); // don't remove this line
     accounts = await ethereum.request({ method: 'eth_accounts' });
   
 	if (accountReady()) {
@@ -93,24 +91,22 @@ buttonMetaMask.innerText = 'ethereum: ' + ethereum;
 	  var bal = await provider.getBalance(accounts[0]);
 	  console.log("Balance of " + accounts[0] + ":", bal.toString());
 
-	  /*
-	  // Polygon ERC721 Transfer events
+	  if (ethereum.chainId === '0x89') { // Polygon ERC721 Transfer events
 	  var manager = new ethers.Contract("0x4d544035500d7ac1b42329c70eb58e77f8249f0f", ["event Transfer(address indexed from, address indexed to, uint256 amount)"], provider);
 	  filter = manager.filters.Transfer();
 	  console.log(Date.now());
 	  events = await manager.queryFilter(filter, 25360000, 25370000);
 	  console.log(Date.now());
 	  console.log(events);
-	  */
-	  /*
-	  // Mainnet ERC721 Transfer events
+	  }
+	  else if (ethereum.chainId === '0x1') { // Mainnet ERC721 Transfer events
 	  var manager = new ethers.Contract("0xe2dbd3ef8d0af1b8537fea5817db3508212d677a", ["event Transfer(address indexed from, address indexed to, uint256 amount)"], provider);
 	  filter = manager.filters.Transfer();
 	  console.log(Date.now());
 	  events = await manager.queryFilter(filter, 0, 14415848);
 	  console.log(Date.now());
 	  console.log(events);
-	  */
+	  }
 
 	  var msg = "Hello world";
 	  var sig = await provider.getSigner().signMessage(msg);
@@ -153,7 +149,7 @@ messageMetaMask.innerHTML = 'sig ' + sig + ' on ' + msg + ' created by ' + addr;
 
 	}
 
-  } //else messageMetaMask.innerHTML = 'no ethereum: ' + ethereum + ', window.ethereum: ' + window.ethereum + ', window.web3:' + window.web3;
+  }
   
 });
 
