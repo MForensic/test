@@ -2,7 +2,7 @@
 
 <body>
 
-<button type="button" id="buttonMetaMask">Loading 4...</button>
+<button type="button" id="buttonMetaMask">Loading 5...</button>
 <p id="messageMetaMask"></p>
 
 <script src="https://unpkg.com/@metamask/detect-provider/dist/detect-provider.min.js"></script>
@@ -59,7 +59,7 @@ window.addEventListener('DOMContentLoaded', async () => {
 	}
   };
 
-  if (ethereum && ethereum.isMetaMask) {
+  if (ethereum) {
 buttonMetaMask.innerText = 'ethereum: ' + ethereum;
   messageMetaMask.innerHTML = 'metamask: ' + ethereum.isMetaMask;
 	ethereum.on('accountsChanged', (newAccounts) => {
@@ -147,7 +147,8 @@ buttonMetaMask.innerText = 'ethereum: ' + ethereum;
 
 	}
 
-  }
+  } else
+	  messageMetaMask.innerHTML = 'no ethereum: ' + ethereum;
   
 });
 
