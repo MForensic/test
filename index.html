@@ -5,6 +5,7 @@
 <button type="button" id="buttonMetaMask">Loading 2...</button>
 <p id="messageMetaMask"></p>
 
+<script src="https://unpkg.com/@metamask/detect-provider/dist/detect-provider.min.js"></script>
 <script src="./ethers.umd.min.js"></script>
 
 <script>
@@ -14,7 +15,7 @@ window.addEventListener('DOMContentLoaded', async () => {
   const buttonMetaMask = document.getElementById('buttonMetaMask');
   const messageMetaMask = document.getElementById('messageMetaMask');
   
-  const { ethereum } = window;
+  const ethereum = await detectEthereumProvider();
   let provider;
   let accounts;
 
