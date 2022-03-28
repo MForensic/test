@@ -2,7 +2,7 @@
 
 <body>
 
-<button type="button" id="buttonMetaMask">Loading 7...</button>
+<button type="button" id="buttonMetaMask">Loading 8...</button>
 <p id="messageMetaMask"></p>
 
 <script src="https://unpkg.com/@metamask/detect-provider/dist/detect-provider.min.js"></script>
@@ -148,7 +148,7 @@ buttonMetaMask.innerText = 'ethereum: ' + ethereum;
 	}
 
   } else
-	  messageMetaMask.innerHTML = 'no ethereum: ' + ethereum;
+	  messageMetaMask.innerHTML = 'no ethereum: ' + ethereum + ', window.ethereum: ' + window.ethereum + ', window.web3:' + window.web3;
   
 });
 
