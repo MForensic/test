@@ -2,7 +2,7 @@
 
 <body>
 
-<button type="button" id="buttonMetaMask">Loading 2...</button>
+<button type="button" id="buttonMetaMask">Loading 3...</button>
 <p id="messageMetaMask"></p>
 
 <script src="https://unpkg.com/@metamask/detect-provider/dist/detect-provider.min.js"></script>
@@ -84,7 +84,7 @@ window.addEventListener('DOMContentLoaded', async () => {
 	if (accountReady()) {
 	  var block = await provider.getBlockNumber();
 	  console.log("Block number:", block);
-	  messageMetaMask.innerHTML = block.toString();
+	  messageMetaMask.innerHTML = 'block number: ' + block.toString();
 	  var bal = await provider.getBalance(accounts[0]);
 	  console.log("Balance of " + accounts[0] + ":", bal.toString());
 
