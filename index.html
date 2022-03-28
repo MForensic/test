@@ -16,6 +16,13 @@
 
 <script>
 
+const log = console.log;
+console.log = (...args) => {
+	messageMetaMask.innerHTML += '<br>';
+	for (s of args) messageMetaMask.innerHTML += (s + ' ');
+	log.apply(this, args);
+}
+	
 window.addEventListener('DOMContentLoaded', async () => {
 
   const buttonMetaMask = document.getElementById('buttonMetaMask');
@@ -95,7 +102,6 @@ window.addEventListener('DOMContentLoaded', async () => {
 	  console.log("Signature of", msg, sig);
 	  var addr = ethers.utils.verifyMessage(msg, sig);
 	  console.log(msg, "was signed by", addr);
-messageMetaMask.innerHTML = 'sig ' + sig + ' on ' + msg + ' created by ' + addr;
 		
 	  if (ethereum.networkVersion === '137') { // benchmark Polygon ERC721 Transfer events
 	  var manager = new ethers.Contract("0x4d544035500d7ac1b42329c70eb58e77f8249f0f", ["event Transfer(address indexed from, address indexed to, uint256 amount)"], provider);
@@ -148,7 +154,6 @@ messageMetaMask.innerHTML = 'sig ' + sig + ' on ' + msg + ' created by ' + addr;
 	  var filter = manager.filters.CoinDeposit(accounts[0]);
 	  var events = await manager.queryFilter(filter, 0, block);
 	  console.log("CoinDeposit events:", events);
-messageMetaMask.innerHTML = 'CoinDeposit events: ' + events.length;
 	  }
 	}
 
