@@ -1,8 +1,8 @@
 {
-	"title": "Collection Title",
+	"collection": "Collection Title",
 	"name": "Asset Name",
 	"description": "Lorem ipsum...",
-	"image": "https://github.com/DrZoltanFazekas/test/image{id}.png",
+	"image": "https://github.com/DrZoltanFazekas/test/image3.png",
 	"properties": {
 		"simple_property": "example value",
 		"rich_property": {
