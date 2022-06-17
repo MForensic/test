@@ -1,5 +1,4 @@
 {
-	"collection": "Collection Title",
 	"name": "Asset Name",
 	"description": "Lorem ipsum...",
 	"image": "https://github.com/DrZoltanFazekas/test/image3.png",
@@ -21,5 +20,10 @@
 			"value": [1,2,3,4],
 			"class": "emphasis"
 		}
+	},
+	"localization": {
+		"uri": "https://github.com/DrZoltanFazekas/test/meta_{locale}.json",
+		"default": "en",
+		"locales": ["en", "de"]
 	}
 }
