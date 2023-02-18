@@ -79,6 +79,7 @@ def adjust_high_qc_and_view(qc, agg_qc):
 			reset()
 	elif agg_qc != None:
 		if agg_qc.high_qc.block.view != high_qc.block.view:
+		 if latestcommittedBlock.view<agg_qc.high_qc.view:
 			high_qc = agg_qc.high_qc # release the lock and adopt the lock of the supermajority
 		if agg_qc.high_qc.block.view > cur_view: # download the blocks of the missed views
 			while cur_view++ <= agg_qc.high_qc.block.view: download(cur_view)
