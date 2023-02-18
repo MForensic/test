@@ -110,8 +110,8 @@ def receive(block):
 		reset()
 		grandparent = try_commit(block)
 		if grandparent != None: 
-			commit(final_block, grandparent)
-			some_block = grandparent
+			commit(final_block, grandparent) # Make sure blocks&txs are executed in order from final_block through grandparent.
+			some_block = grandparent 
 			while some_block.view > final_block.view:
 				view = some_block.view
 				while view > some_block.parent.view
