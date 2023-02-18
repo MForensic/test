@@ -79,8 +79,7 @@ def adjust_high_qc_and_view(qc, agg_qc):
 			reset()
 	elif agg_qc != None:
 		if agg_qc.high_qc.block.view != high_qc.block.view:
-			if latestcommittedBlock.view < agg_qc.high_qc.block.view:
-				high_qc = agg_qc.high_qc # release the lock and adopt the lock of the supermajority
+			high_qc = agg_qc.high_qc # release the lock and adopt the lock of the supermajority
 		if agg_qc.high_qc.block.view > cur_view: # download the blocks of the missed views
 			while cur_view++ <= agg_qc.high_qc.block.view: download(cur_view)
 			reset()
@@ -94,6 +93,8 @@ def receive(block):
 	if block.qc != None:
 		if !verify(block.qc, block.qc.signature, block.qc.signers): return
 	if block.agg_qc != None:
+	        if latestcommittedBlock.view >= agg_qc.high_qc.block.view:return
+
 		if !batch_verify((block.agg_qc.signers[i], block.agg_qc.view, block.agg_qc.qcs[i]) for i in 0..len(block.agg_qc.signers), block.agg_qc.signature, block.agg_qc.signers): return
 		block.agg_qc.high_qc = qc in block.agg_qc.qcs such that qc.block.view == max(all.block.view of all in block.agg_qc.qcs)
 		if !verify(block.agg_qc.high_qc, block.agg_qc.high_qc.signature, block.agg_qc.high_qc.signers): return
